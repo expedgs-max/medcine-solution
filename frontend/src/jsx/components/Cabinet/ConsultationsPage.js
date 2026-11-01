@@ -2000,15 +2000,7 @@ const ConsultationsPage = () => {
                             {cleanPatientName(cs.patientName)}
                           </span>
                         )}
-                        {/* Motif et diagnostic visibles sous le nom sur mobile */}
-                        <div className="d-block d-md-none text-muted fs-11 mt-1">
-                          {cs.reason}
-                        </div>
-                        {cs.diagnosis && (
-                          <div className="d-block d-md-none text-muted fs-11">
-                            {cs.diagnosis}
-                          </div>
-                        )}
+
                       </td>
                       <td className="d-none d-md-table-cell">{cs.reason}</td>
                       <td className="d-none d-md-table-cell">
