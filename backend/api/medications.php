@@ -66,7 +66,7 @@ function handleCreateOrUpdateMedication($db) {
         $id = !empty($body['id']) ? intval($body['id']) : null;
         $name = trim($body['name']);
         $dosage = !empty($body['dosage']) ? trim($body['dosage']) : null;
-        $form = !empty($body['form']) ? trim($body['form']) : null;
+        $form = !empty($body['form']) ? trim($body['form']) : 'Comprimé';
         $posology = !empty($body['defaultPosology']) ? trim($body['defaultPosology']) : (!empty($body['posology']) ? trim($body['posology']) : null);
         $duration = !empty($body['defaultDuration']) ? trim($body['defaultDuration']) : (!empty($body['duration']) ? trim($body['duration']) : null);
         $category = !empty($body['category']) ? trim($body['category']) : null;

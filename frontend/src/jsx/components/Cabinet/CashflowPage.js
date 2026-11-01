@@ -317,8 +317,17 @@ const CashflowPage = () => {
     });
   };
 
+  // Tri chronologique descendant : le plus récent (date d'opération + heure/création + id) TOUJOURS en 1er
+  const sortedEntries = [...entries].sort((a, b) => {
+    const dComp = (b.entryDate || "").localeCompare(a.entryDate || "");
+    if (dComp !== 0) return dComp;
+    const cComp = (b.createdAt || "").localeCompare(a.createdAt || "");
+    if (cComp !== 0) return cComp;
+    return (b.id || 0) - (a.id || 0);
+  });
+
   // Filtrage des écritures
-  const filteredEntries = entries.filter((item) => {
+  const filteredEntries = sortedEntries.filter((item) => {
     if (filterType !== "ALL" && item.type !== filterType) return false;
     if (searchTerm.trim() !== "") {
       const q = searchTerm.toLowerCase();

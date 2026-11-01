@@ -72,6 +72,19 @@ const InvoicesPage = () => {
     return cleaned;
   };
 
+  const formatInvoiceTime = (inv) => {
+    if (inv?.time && inv.time !== "10:30") return inv.time;
+    if (inv?.createdAt) {
+      const parts = String(inv.createdAt).split(" ");
+      if (parts[1]) return parts[1].substring(0, 5);
+      const t = new Date(inv.createdAt);
+      if (!isNaN(t.getTime())) {
+        return t.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+      }
+    }
+    return inv?.time || "";
+  };
+
   const getPatientPassword = (inv) => {
     if (!inv || inv.isGuest || !inv.patientId) return "";
     if (inv.patientName && (inv.patientName.includes('(sc)') || inv.patientName.toLowerCase().includes('sans compte'))) return "";
@@ -225,8 +238,19 @@ const InvoicesPage = () => {
   const currentCount = dateFilteredInvoices.length;
   const currentAvg = Math.round(currentTotal / (currentCount || 1));
 
+  // Tri chronologique descendant : le plus récent (date + heure + id) TOUJOURS en 1er
+  const sortedInvoices = [...dateFilteredInvoices].sort((a, b) => {
+    const dComp = (getInvDateStr(b) || "").localeCompare(getInvDateStr(a) || "");
+    if (dComp !== 0) return dComp;
+    const tComp = (b.time || "").localeCompare(a.time || "");
+    if (tComp !== 0) return tComp;
+    const cComp = (b.createdAt || "").localeCompare(a.createdAt || "");
+    if (cComp !== 0) return cComp;
+    return (b.id || 0) - (a.id || 0);
+  });
+
   // Filtrage final avec recherche texte
-  const filteredInvoices = dateFilteredInvoices.filter((inv) => {
+  const filteredInvoices = sortedInvoices.filter((inv) => {
     const search = searchTerm.toLowerCase().trim();
     if (!search) return true;
     return (
@@ -492,7 +516,7 @@ const InvoicesPage = () => {
                       </td>
                       <td>
                         <span className="text-dark font-w500">{inv.date}</span>
-                        <small className="text-muted d-block">🕒 {inv.time || "10:30"}</small>
+                        {formatInvoiceTime(inv) && <small className="text-muted d-block">🕒 {formatInvoiceTime(inv)}</small>}
                       </td>
                       <td>
                         {inv.isGuest || !inv.patientId || String(inv.patientName || "").toLowerCase().includes("(sc)") ? (
@@ -716,7 +740,7 @@ const InvoicesPage = () => {
                 <div className="d-flex justify-content-between mb-1">
                   <span className="text-muted">Date :</span>
                   <span className="text-dark font-w500">
-                    {previewInvoice.date} {previewInvoice.time ? `• ${previewInvoice.time}` : "• 10:30"}
+                    {previewInvoice.date} {formatInvoiceTime(previewInvoice) ? `• ${formatInvoiceTime(previewInvoice)}` : ""}
                   </span>
                 </div>
                 <div className="d-flex justify-content-between align-items-center mt-2 pt-1" style={{ borderTop: "1px dotted #e2e8f0" }}>

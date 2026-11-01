@@ -235,10 +235,21 @@ const PrescriptionPreviewModal = ({ show, onHide, prescription }) => {
                     <div className="d-flex justify-content-between align-items-baseline">
                       <strong className="text-dark" style={{ fontSize: "15px" }}>
                         {item.medication}
+                        {item.form && (
+                          <span className="text-muted font-w400 ms-2" style={{ fontSize: "12.5px" }}>
+                            ({item.form})
+                          </span>
+                        )}
                       </strong>
                     </div>
                     <div className="ps-2 text-dark font-w500 mt-1" style={{ fontSize: "13px" }}>
-                      • {item.posology}
+                      {item.posology ? <span>• {item.posology}</span> : <span>• Selon prescription</span>}
+                      {(item.instructions || item.mealTiming) && (
+                        <span className="ms-2">({item.instructions || item.mealTiming})</span>
+                      )}
+                      {item.duration && (
+                        <span className="ms-2">— Durée : <strong>{item.duration}</strong></span>
+                      )}
                     </div>
                   </li>
                 ))}

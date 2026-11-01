@@ -67,7 +67,7 @@ function handleGetInvoices($db) {
             FROM invoices i
             LEFT JOIN patients p ON p.id = i.patient_id
             $where
-            ORDER BY i.id DESC
+            ORDER BY i.invoice_date DESC, i.created_at DESC, i.id DESC
         ");
         $stmt->execute($params);
         $rows = $stmt->fetchAll();
@@ -92,6 +92,7 @@ function handleGetInvoices($db) {
                 'patientPassword' => $pwd,
                 'fileNumber' => $row['file_number'] ?? '',
                 'date' => $row['invoice_date'],
+                'time' => !empty($row['created_at']) ? date('H:i', strtotime($row['created_at'])) : '',
                 'actDescription' => $row['act_description'],
                 'amount' => (float)$row['amount'],
                 'coveredAmo' => (float)$row['covered_amo'],

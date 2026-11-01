@@ -69,7 +69,7 @@ function handleGetPatients($db) {
             $params[':s'] = "%" . $search . "%";
         }
 
-        $sql .= " ORDER BY id DESC ";
+        $sql .= " ORDER BY created_at DESC, id DESC ";
 
         $stmt = $db->prepare($sql);
         $stmt->execute($params);

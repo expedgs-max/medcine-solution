@@ -42,7 +42,7 @@ function handleGetPrescriptions($db) {
             $params[':pid'] = $patientId;
         }
 
-        $sql .= " ORDER BY pr.prescription_date DESC, pr.id DESC ";
+        $sql .= " ORDER BY pr.prescription_date DESC, pr.created_at DESC, pr.id DESC ";
 
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
@@ -50,7 +50,7 @@ function handleGetPrescriptions($db) {
 
         $prescriptions = [];
         foreach ($rows as $r) {
-            $itStmt = $db->prepare("SELECT medication, dosage, posology, duration, renewable FROM prescription_items WHERE prescription_id = :pid");
+            $itStmt = $db->prepare("SELECT medication, dosage, form, posology, duration, instructions, renewable FROM prescription_items WHERE prescription_id = :pid");
             $itStmt->execute([':pid' => $r['id']]);
             $items = $itStmt->fetchAll();
 
@@ -121,15 +121,18 @@ function handleCreatePrescription($db) {
 
         $items = $body['items'] ?? [];
         if (is_array($items) && count($items) > 0) {
-            $itStmt = $db->prepare("INSERT INTO prescription_items (prescription_id, medication, dosage, posology, duration, renewable) VALUES (:pid, :med, :dos, :pos, :dur, :ren)");
+            $itStmt = $db->prepare("INSERT INTO prescription_items (prescription_id, medication, dosage, form, posology, duration, instructions, renewable) VALUES (:pid, :med, :dos, :form, :pos, :dur, :inst, :ren)");
             foreach ($items as $it) {
                 if (!empty(trim($it['medication'] ?? ''))) {
+                    $formVal = !empty($it['form']) ? trim($it['form']) : null;
                     $itStmt->execute([
                         ':pid' => $prescId,
                         ':med' => trim($it['medication']),
                         ':dos' => $it['dosage'] ?? null,
-                        ':pos' => $it['posology'] ?? '1 comprimé par jour',
-                        ':dur' => $it['duration'] ?? '5 jours',
+                        ':form' => $formVal,
+                        ':pos' => !empty($it['posology']) ? trim($it['posology']) : '',
+                        ':dur' => !empty($it['duration']) ? trim($it['duration']) : '',
+                        ':inst' => !empty($it['instructions']) ? trim($it['instructions']) : (!empty($it['mealTiming']) ? trim($it['mealTiming']) : ''),
                         ':ren' => $it['renewable'] ?? 'Non renouvelable'
                     ]);
                     try { 
@@ -137,7 +140,7 @@ function handleCreatePrescription($db) {
                         $chkMed = $db->prepare("SELECT id FROM medications WHERE LOWER(name) = LOWER(:name) LIMIT 1"); 
                         $chkMed->execute([':name' => $mName]); 
                         if (!$chkMed->fetch()) { 
-                            $db->prepare("INSERT INTO medications (name, dosage, default_posology, default_duration) VALUES (:name, :dos, :pos, :dur)")->execute([':name' => $mName, ':dos' => $it['dosage'] ?? null, ':pos' => $it['posology'] ?? '1 comprimé par jour', ':dur' => $it['duration'] ?? '5 jours']); 
+                            $db->prepare("INSERT INTO medications (name, dosage, form, default_posology, default_duration) VALUES (:name, :dos, :form, :pos, :dur)")->execute([':name' => $mName, ':dos' => $it['dosage'] ?? null, ':form' => $formVal, ':pos' => $it['posology'] ?? '1 comprimé par jour', ':dur' => $it['duration'] ?? '5 jours']); 
                         } 
                     } catch (Exception $e) {}
                 }

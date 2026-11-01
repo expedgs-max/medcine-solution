@@ -68,7 +68,7 @@ function handleGetWaitingRoom($db) {
                 WHERE w.status != 'Terminé'
                   AND (w.patient_id NOT IN (2, 3) OR w.patient_id IS NULL)
                   AND (w.patient_name NOT IN ('Sophie Bernard', 'Marc Lemoine') OR w.patient_name IS NULL)
-                ORDER BY w.arrival_time DESC, w.id DESC";
+                ORDER BY w.created_at DESC, w.arrival_time DESC, w.id DESC";
 
         $stmt = $db->query($sql);
         $rows = $stmt->fetchAll();

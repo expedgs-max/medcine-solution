@@ -46,7 +46,7 @@ function handleGetConsultations($db) {
             $params[':patient_id'] = $patientId;
         }
 
-        $sql .= " ORDER BY c.consultation_date DESC, c.consultation_time DESC ";
+        $sql .= " ORDER BY c.consultation_date DESC, c.consultation_time DESC, c.created_at DESC, c.id DESC ";
 
         $stmt = $db->prepare($sql);
         $stmt->execute($params);

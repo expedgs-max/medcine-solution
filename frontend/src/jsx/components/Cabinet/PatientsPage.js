@@ -281,7 +281,14 @@ const PatientsPage = () => {
     });
   };
 
-  const filteredPatients = patients.filter((p) => {
+  // Tri descendant : patient le plus récemment enregistré TOUJOURS en 1er
+  const sortedPatients = [...patients].sort((a, b) => {
+    const cComp = (b.createdAt || b.created_at || "").localeCompare(a.createdAt || a.created_at || "");
+    if (cComp !== 0) return cComp;
+    return (b.id || 0) - (a.id || 0);
+  });
+
+  const filteredPatients = sortedPatients.filter((p) => {
     const fullName = `${p.firstName || ""} ${p.lastName || ""}`.toLowerCase();
     const fileNum = (p.fileNumber || "").toLowerCase();
     const phoneNum = p.phone || "";

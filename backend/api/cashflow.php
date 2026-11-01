@@ -37,7 +37,7 @@ function handleGetCashflow($db) {
         }
 
         // 1. Récupérer toutes les écritures de caisse
-        $stmt = $db->query("SELECT * FROM cash_entries ORDER BY entry_date DESC, id DESC");
+        $stmt = $db->query("SELECT * FROM cash_entries ORDER BY entry_date DESC, created_at DESC, id DESC");
         $rows = $stmt->fetchAll();
 
         $entries = array_map(function ($r) {

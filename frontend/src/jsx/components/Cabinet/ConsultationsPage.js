@@ -916,7 +916,16 @@ const ConsultationsPage = () => {
     });
   };
 
-  const filteredConsultations = consultations.filter((c) => {
+  // Tri chronologique descendant : consultation la plus récente (date + heure + id) TOUJOURS en 1er
+  const sortedConsultations = [...consultations].sort((a, b) => {
+    const dComp = (b.date || "").localeCompare(a.date || "");
+    if (dComp !== 0) return dComp;
+    const tComp = (b.time || "").localeCompare(a.time || "");
+    if (tComp !== 0) return tComp;
+    return (b.id || 0) - (a.id || 0);
+  });
+
+  const filteredConsultations = sortedConsultations.filter((c) => {
     const matchSearch =
       c.patientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
       c.consultationNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||

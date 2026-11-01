@@ -42,7 +42,7 @@ function handleGetDocuments($db) {
             FROM medical_documents d
             LEFT JOIN patients p ON p.id = d.patient_id
             $where
-            ORDER BY d.id DESC
+            ORDER BY d.doc_date DESC, d.created_at DESC, d.id DESC
         ");
         $stmt->execute($params);
         $rows = $stmt->fetchAll();

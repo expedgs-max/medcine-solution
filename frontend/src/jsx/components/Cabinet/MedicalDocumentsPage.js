@@ -319,7 +319,16 @@ const MedicalDocumentsPage = () => {
     }
   };
 
-  const filteredDocuments = documents.filter((doc) => {
+  // Tri chronologique descendant : document le plus récent (date + heure/création + id) TOUJOURS en 1er
+  const sortedDocuments = [...documents].sort((a, b) => {
+    const dComp = (b.date || "").localeCompare(a.date || "");
+    if (dComp !== 0) return dComp;
+    const cComp = (b.createdAt || "").localeCompare(a.createdAt || "");
+    if (cComp !== 0) return cComp;
+    return (b.id || 0) - (a.id || 0);
+  });
+
+  const filteredDocuments = sortedDocuments.filter((doc) => {
     const matchCat = categoryFilter === "all" || doc.category === categoryFilter;
     const matchSearch =
       doc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||

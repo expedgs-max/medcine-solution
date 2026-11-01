@@ -38,10 +38,19 @@ const AppointmentsPage = () => {
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(false);
   const [viewMode, setViewMode] = useState("calendar"); // "calendar" | "list"
+  const [listFilterScope, setListFilterScope] = useState("upcoming"); // "upcoming" (aujourd'hui & futur) | "all" (tout l'historique)
   const [activeView, setActiveView] = useState("timeGridWeek"); // "timeGridWeek" | "dayGridMonth"
   const [calendarTitle, setCalendarTitle] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [searchTerm, setSearchTerm] = useState("");
+
+  const todayStr = (() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  })();
   const [liveTime, setLiveTime] = useState(
     new Date().toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })
   );
@@ -766,7 +775,33 @@ const AppointmentsPage = () => {
     });
   };
 
-  const filteredAppointments = appointments.filter((rdv) => {
+  // Nombre de rendez-vous à venir (aujourd'hui et futurs)
+  const upcomingCount = appointments.filter((rdv) => (rdv.date || "") >= todayStr).length;
+
+  // Filtrage selon le mode sélectionné : Aujourd'hui & Futurs par défaut, ou Tout l'historique
+  const baseAppointments = listFilterScope === "upcoming"
+    ? appointments.filter((rdv) => (rdv.date || "") >= todayStr)
+    : appointments;
+
+  // Tri : pour à venir -> du plus proche au plus lointain (matin -> après-midi -> jours futurs)
+  // pour historique -> du plus récent au plus ancien
+  const sortedAppointments = [...baseAppointments].sort((a, b) => {
+    if (listFilterScope === "upcoming") {
+      const dComp = (a.date || "").localeCompare(b.date || "");
+      if (dComp !== 0) return dComp;
+      const tComp = (a.time || "").localeCompare(b.time || "");
+      if (tComp !== 0) return tComp;
+      return (a.id || 0) - (b.id || 0);
+    } else {
+      const dComp = (b.date || "").localeCompare(a.date || "");
+      if (dComp !== 0) return dComp;
+      const tComp = (b.time || "").localeCompare(a.time || "");
+      if (tComp !== 0) return tComp;
+      return (b.id || 0) - (a.id || 0);
+    }
+  });
+
+  const filteredAppointments = sortedAppointments.filter((rdv) => {
     const matchStatus = filterStatus === "all" || rdv.status === filterStatus;
     const pName = (rdv.patientName || "").toLowerCase();
     const pReason = (rdv.reason || "").toLowerCase();
@@ -1993,8 +2028,39 @@ const AppointmentsPage = () => {
         </div>
       ) : (
         <div className="card">
-          <div className="card-header border-0 pb-0">
-            <h4 className="card-title">Liste des Rendez-vous programmés</h4>
+          <div className="card-header border-0 pb-2 d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+              <h4 className="card-title mb-1">
+                {listFilterScope === "upcoming" ? "Rendez-vous d'Aujourd'hui & À venir" : "Historique de toutes les réservations"}
+              </h4>
+              <p className="text-muted fs-12 mb-0">
+                {listFilterScope === "upcoming"
+                  ? "Affichage des rendez-vous à partir d'aujourd'hui (les rendez-vous passés d'hier sont masqués)."
+                  : "Historique complet de toutes les réservations enregistrées au cabinet."}
+              </p>
+            </div>
+
+            {/* Boutons de bascule : À venir vs Tout l'historique */}
+            <div className="btn-group btn-group-sm" role="group">
+              <button
+                type="button"
+                className={`btn ${listFilterScope === "upcoming" ? "btn-primary shadow-sm font-w600" : "btn-outline-primary"}`}
+                style={{ borderRadius: "8px 0 0 8px", fontSize: "12px", padding: "6px 14px" }}
+                onClick={() => setListFilterScope("upcoming")}
+              >
+                <i className="fa fa-calendar-check-o me-1"></i>
+                Aujourd'hui & À venir ({upcomingCount})
+              </button>
+              <button
+                type="button"
+                className={`btn ${listFilterScope === "all" ? "btn-primary shadow-sm font-w600" : "btn-outline-primary"}`}
+                style={{ borderRadius: "0 8px 8px 0", fontSize: "12px", padding: "6px 14px" }}
+                onClick={() => setListFilterScope("all")}
+              >
+                <i className="fa fa-history me-1"></i>
+                Tout l'historique ({appointments.length})
+              </button>
+            </div>
           </div>
           <div className="card-body">
             <div className="table-responsive">

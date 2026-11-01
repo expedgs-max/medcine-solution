@@ -3,21 +3,40 @@ import { Modal, Button } from "react-bootstrap";
 import Swal from "sweetalert2";
 import { ApiService } from "../../../services/ApiService";
 
+export const MEDICATION_TYPES = [
+  { value: "Comprimé", label: "Comprimé (tablet)" },
+  { value: "Gélule", label: "Gélule (capsule)" },
+  { value: "Sirop", label: "Sirop (syrup)" },
+  { value: "Solution buvable", label: "Solution buvable (oral_solution)" },
+  { value: "Injection", label: "Injection (injection)" },
+  { value: "Pommade", label: "Pommade (ointment)" },
+  { value: "Crème", label: "Crème (cream)" },
+  { value: "Gouttes", label: "Gouttes (drops)" },
+  { value: "Suppositoire", label: "Suppositoire (suppository)" },
+  { value: "Sachet", label: "Sachet (sachet)" },
+  { value: "Spray", label: "Spray (spray)" },
+  { value: "Inhalateur", label: "Inhalateur" },
+];
+
 const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated }) => {
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [newMedName, setNewMedName] = useState("");
+  const [newMedForm, setNewMedForm] = useState("Comprimé");
   const [editingMed, setEditingMed] = useState(null);
   const [editMedName, setEditMedName] = useState("");
+  const [editMedForm, setEditMedForm] = useState("Comprimé");
 
   const handleStartEdit = (med) => {
     setEditingMed(med);
     setEditMedName(med.name || "");
+    setEditMedForm(med.form || "Comprimé");
   };
 
   const handleCancelEdit = () => {
     setEditingMed(null);
     setEditMedName("");
+    setEditMedForm("Comprimé");
   };
 
   const handleAddMedication = async (e) => {
@@ -36,8 +55,8 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
     try {
       const payload = {
         name: cleanName,
+        form: newMedForm || "Comprimé",
         dosage: "",
-        form: "",
         defaultPosology: "",
         defaultDuration: "",
         category: "Général",
@@ -59,11 +78,12 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
       }
 
       setNewMedName("");
+      setNewMedForm("Comprimé");
 
       Swal.fire({
         icon: "success",
         title: "Médicament ajouté !",
-        text: `"${cleanName}" est désormais disponible pour les ordonnances.`,
+        text: `"${cleanName}" (${payload.form}) est désormais enregistré dans la base de données.`,
         timer: 1500,
         showConfirmButton: false,
       });
@@ -98,8 +118,8 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
       const payload = {
         id: med.id,
         name: cleanName,
+        form: editMedForm || med.form || "Comprimé",
         dosage: med.dosage || "",
-        form: med.form || "",
         defaultPosology: med.defaultPosology || med.posology || "",
         defaultDuration: med.defaultDuration || med.duration || "",
         category: med.category || "Général",
@@ -111,6 +131,7 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
         ...payload,
         id: res && res.data && res.data.id ? res.data.id : (med.id || Date.now()),
         name: cleanName,
+        form: payload.form,
       };
 
       const updated = medications.map((m) => {
@@ -125,11 +146,12 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
 
       setEditingMed(null);
       setEditMedName("");
+      setEditMedForm("Comprimé");
 
       Swal.fire({
         icon: "success",
         title: "Médicament modifié !",
-        text: `"${cleanName}" a été mis à jour avec succès.`,
+        text: `"${cleanName}" (${payload.form}) a été mis à jour avec succès.`,
         timer: 1400,
         showConfirmButton: false,
       });
@@ -168,6 +190,7 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
         if (editingMed && ((med.id && editingMed.id === med.id) || editingMed.name === med.name)) {
           setEditingMed(null);
           setEditMedName("");
+          setEditMedForm("Comprimé");
         }
         Swal.fire({
           icon: "success",
@@ -186,9 +209,14 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
     }
   };
 
-  const filtered = medications.filter((m) =>
-    m.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filtered = medications.filter((m) => {
+    const q = searchTerm.toLowerCase().trim();
+    if (!q) return true;
+    return (
+      (m.name || "").toLowerCase().includes(q) ||
+      (m.form || "").toLowerCase().includes(q)
+    );
+  });
 
   return (
     <Modal show={show} onHide={onHide} size="lg" centered backdrop="static">
@@ -228,14 +256,14 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
           <form onSubmit={editingMed ? handleSaveEdit : handleAddMedication}>
             <div className="card-body p-3">
               <div className="row g-2 align-items-end">
-                <div className="col-md-8 mb-1">
+                <div className="col-md-5 mb-1">
                   <label className="form-label fs-13 font-w600 mb-1">
                     Nom du médicament <span className="text-danger">*</span>
                   </label>
                   <input
                     type="text"
                     className="form-control"
-                    placeholder="Ex: PARACÉTAMOL 1000 mg, AMOXICILLINE 1g, SPASFON, AUGMENTIN..."
+                    placeholder="Ex: PARACÉTAMOL 1000 mg, AMOXICILLINE 1g, SPASFON..."
                     value={editingMed ? editMedName : newMedName}
                     onChange={(e) =>
                       editingMed ? setEditMedName(e.target.value) : setNewMedName(e.target.value)
@@ -245,7 +273,28 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
                     style={{ height: "42px" }}
                   />
                 </div>
+
                 <div className="col-md-4 mb-1">
+                  <label className="form-label fs-13 font-w600 mb-1">
+                    Forme / Type <span className="text-danger">*</span>
+                  </label>
+                  <select
+                    className="form-control default-select"
+                    value={editingMed ? editMedForm : newMedForm}
+                    onChange={(e) =>
+                      editingMed ? setEditMedForm(e.target.value) : setNewMedForm(e.target.value)
+                    }
+                    style={{ height: "42px" }}
+                  >
+                    {MEDICATION_TYPES.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="col-md-3 mb-1">
                   <div className="d-flex gap-2">
                     <Button
                       type="submit"
@@ -253,16 +302,16 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
                       className={`flex-grow-1 d-flex align-items-center justify-content-center ${editingMed ? "text-white" : ""}`}
                       style={{
                         height: "42px",
-                        padding: "0 16px",
-                        fontSize: "14px",
+                        padding: "0 12px",
+                        fontSize: "13px",
                         fontWeight: "600",
                         lineHeight: "1",
                       }}
                       disabled={loading}
                     >
-                      <i className={`fa ${editingMed ? "fa-check" : "fa-plus"} me-2`} style={{ lineHeight: 1, fontSize: "13px" }}></i>
+                      <i className={`fa ${editingMed ? "fa-check" : "fa-plus"} me-1`} style={{ lineHeight: 1, fontSize: "12px" }}></i>
                       <span style={{ lineHeight: 1 }}>
-                        {loading ? "Enregistrement..." : editingMed ? "Mettre à jour" : "+ Ajouter"}
+                        {loading ? "..." : editingMed ? "Mettre à jour" : "+ Ajouter"}
                       </span>
                     </Button>
                     {editingMed && (
@@ -272,8 +321,9 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
                         className="border"
                         style={{ height: "42px", fontSize: "13px" }}
                         onClick={handleCancelEdit}
+                        title="Annuler"
                       >
-                        Annuler
+                        ✕
                       </Button>
                     )}
                   </div>
@@ -292,7 +342,7 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
             <input
               type="text"
               className="form-control form-control-sm"
-              placeholder="Rechercher un médicament..."
+              placeholder="Rechercher nom ou forme..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
@@ -306,15 +356,16 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
           <table className="table table-sm table-hover align-middle border mb-0">
             <thead className="table-light sticky-top" style={{ zIndex: 1 }}>
               <tr>
-                <th className="fs-12 font-w600" style={{ width: "60px" }}>N°</th>
+                <th className="fs-12 font-w600" style={{ width: "50px" }}>N°</th>
                 <th className="fs-12 font-w600">NOM DU MÉDICAMENT</th>
-                <th className="fs-12 font-w600 text-end" style={{ width: "190px" }}>ACTION</th>
+                <th className="fs-12 font-w600" style={{ width: "170px" }}>FORME / TYPE</th>
+                <th className="fs-12 font-w600 text-end" style={{ width: "170px" }}>ACTION</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan="3" className="text-center py-4 text-muted fs-13">
+                  <td colSpan="4" className="text-center py-4 text-muted fs-13">
                     Aucun médicament trouvé correspondant à la recherche.
                   </td>
                 </tr>
@@ -344,6 +395,30 @@ const MedicationsModal = ({ show, onHide, medications = [], onMedicationsUpdated
                           />
                         ) : (
                           <strong className="text-primary font-w600 fs-14">{med.name}</strong>
+                        )}
+                      </td>
+                      <td>
+                        {isEditing ? (
+                          <select
+                            className="form-control form-control-sm default-select"
+                            value={editMedForm}
+                            onChange={(e) => setEditMedForm(e.target.value)}
+                            style={{ height: "32px", fontSize: "12px" }}
+                          >
+                            {MEDICATION_TYPES.map((t) => (
+                              <option key={t.value} value={t.value}>
+                                {t.label}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span
+                            className="badge badge-sm badge-info light border"
+                            style={{ fontSize: "11px", fontWeight: "600" }}
+                          >
+                            <i className="fa fa-medkit me-1"></i>
+                            {med.form || "Comprimé"}
+                          </span>
                         )}
                       </td>
                       <td className="text-end" style={{ whiteSpace: "nowrap" }}>
