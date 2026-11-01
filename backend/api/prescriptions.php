@@ -21,6 +21,45 @@ switch ($method) {
         sendResponse("error", null, "Méthode non autorisée", 405);
 }
 
+/**
+ * Assure dynamiquement la présence des colonnes 'form' et 'instructions'
+ * dans la table prescription_items pour éviter toute erreur SQLSTATE[42S22]
+ */
+function ensurePrescriptionItemsColumns($db) {
+    static $columnsChecked = null;
+    if ($columnsChecked !== null) return $columnsChecked;
+
+    $cols = [];
+    try {
+        $colStmt = $db->query("SHOW COLUMNS FROM prescription_items");
+        while ($c = $colStmt->fetch()) {
+            $cols[] = strtolower($c['Field']);
+        }
+    } catch (Exception $e) {
+        return ['has_form' => false, 'has_instructions' => false];
+    }
+
+    if (!in_array('form', $cols)) {
+        try {
+            $db->exec("ALTER TABLE prescription_items ADD COLUMN form varchar(100) NULL AFTER dosage");
+            $cols[] = 'form';
+        } catch (Exception $e) {}
+    }
+
+    if (!in_array('instructions', $cols)) {
+        try {
+            $db->exec("ALTER TABLE prescription_items ADD COLUMN instructions text NULL");
+            $cols[] = 'instructions';
+        } catch (Exception $e) {}
+    }
+
+    $columnsChecked = [
+        'has_form' => in_array('form', $cols),
+        'has_instructions' => in_array('instructions', $cols)
+    ];
+    return $columnsChecked;
+}
+
 function handleGetPrescriptions($db) {
     try {
         $id = isset($_GET['id']) ? intval($_GET['id']) : null;
@@ -48,9 +87,15 @@ function handleGetPrescriptions($db) {
         $stmt->execute($params);
         $rows = $stmt->fetchAll();
 
+        $colInfo = ensurePrescriptionItemsColumns($db);
+        $formCol = !empty($colInfo['has_form']) ? "form" : "'' AS form";
+        $instCol = !empty($colInfo['has_instructions']) ? "instructions" : "'' AS instructions";
+
         $prescriptions = [];
+        $itSql = "SELECT medication, dosage, $formCol, posology, duration, $instCol, renewable FROM prescription_items WHERE prescription_id = :pid";
+        $itStmt = $db->prepare($itSql);
+
         foreach ($rows as $r) {
-            $itStmt = $db->prepare("SELECT medication, dosage, form, posology, duration, instructions, renewable FROM prescription_items WHERE prescription_id = :pid");
             $itStmt->execute([':pid' => $r['id']]);
             $items = $itStmt->fetchAll();
 
@@ -119,28 +164,60 @@ function handleCreatePrescription($db) {
 
         $prescId = intval($db->lastInsertId());
 
+        $colInfo = ensurePrescriptionItemsColumns($db);
+        $hasForm = !empty($colInfo['has_form']);
+        $hasInst = !empty($colInfo['has_instructions']);
+
+        $fields = ["prescription_id", "medication", "dosage"];
+        $placeholders = [":pid", ":med", ":dos"];
+        if ($hasForm) {
+            $fields[] = "form";
+            $placeholders[] = ":form";
+        }
+        $fields[] = "posology";
+        $placeholders[] = ":pos";
+        $fields[] = "duration";
+        $placeholders[] = ":dur";
+        if ($hasInst) {
+            $fields[] = "instructions";
+            $placeholders[] = ":inst";
+        }
+        $fields[] = "renewable";
+        $placeholders[] = ":ren";
+
+        $itSql = "INSERT INTO prescription_items (" . implode(", ", $fields) . ") VALUES (" . implode(", ", $placeholders) . ")";
+        $itStmt = $db->prepare($itSql);
+
         $items = $body['items'] ?? [];
         if (is_array($items) && count($items) > 0) {
-            $itStmt = $db->prepare("INSERT INTO prescription_items (prescription_id, medication, dosage, form, posology, duration, instructions, renewable) VALUES (:pid, :med, :dos, :form, :pos, :dur, :inst, :ren)");
             foreach ($items as $it) {
                 if (!empty(trim($it['medication'] ?? ''))) {
                     $formVal = !empty($it['form']) ? trim($it['form']) : null;
-                    $itStmt->execute([
+                    $execParams = [
                         ':pid' => $prescId,
                         ':med' => trim($it['medication']),
                         ':dos' => $it['dosage'] ?? null,
-                        ':form' => $formVal,
                         ':pos' => !empty($it['posology']) ? trim($it['posology']) : '',
                         ':dur' => !empty($it['duration']) ? trim($it['duration']) : '',
-                        ':inst' => !empty($it['instructions']) ? trim($it['instructions']) : (!empty($it['mealTiming']) ? trim($it['mealTiming']) : ''),
                         ':ren' => $it['renewable'] ?? 'Non renouvelable'
-                    ]);
+                    ];
+                    if ($hasForm) $execParams[':form'] = $formVal;
+                    if ($hasInst) $execParams[':inst'] = !empty($it['instructions']) ? trim($it['instructions']) : (!empty($it['mealTiming']) ? trim($it['mealTiming']) : '');
+
+                    $itStmt->execute($execParams);
+
                     try { 
                         $mName = trim($it['medication']); 
                         $chkMed = $db->prepare("SELECT id FROM medications WHERE LOWER(name) = LOWER(:name) LIMIT 1"); 
                         $chkMed->execute([':name' => $mName]); 
                         if (!$chkMed->fetch()) { 
-                            $db->prepare("INSERT INTO medications (name, dosage, form, default_posology, default_duration) VALUES (:name, :dos, :form, :pos, :dur)")->execute([':name' => $mName, ':dos' => $it['dosage'] ?? null, ':form' => $formVal, ':pos' => $it['posology'] ?? '1 comprimé par jour', ':dur' => $it['duration'] ?? '5 jours']); 
+                            $db->prepare("INSERT INTO medications (name, dosage, form, default_posology, default_duration) VALUES (:name, :dos, :form, :pos, :dur)")->execute([
+                                ':name' => $mName,
+                                ':dos' => $it['dosage'] ?? null,
+                                ':form' => $formVal,
+                                ':pos' => $it['posology'] ?? '',
+                                ':dur' => $it['duration'] ?? ''
+                            ]); 
                         } 
                     } catch (Exception $e) {}
                 }
@@ -164,19 +241,22 @@ function handleCreatePrescription($db) {
 function handleDeletePrescription($db) {
     $id = isset($_GET['id']) ? intval($_GET['id']) : null;
     if (!$id) {
-        $body = getRequestBody();
-        $id = isset($body['id']) ? intval($body['id']) : null;
-    }
-
-    if (!$id) {
-        sendResponse("error", null, "ID requis", 400);
+        sendResponse("error", null, "ID ordonnance requis", 400);
     }
 
     try {
+        $db->beginTransaction();
+
+        $stmtItems = $db->prepare("DELETE FROM prescription_items WHERE prescription_id = :id");
+        $stmtItems->execute([':id' => $id]);
+
         $stmt = $db->prepare("DELETE FROM prescriptions WHERE id = :id");
         $stmt->execute([':id' => $id]);
-        sendResponse("success", null, "Ordonnance supprimée");
+
+        $db->commit();
+        sendResponse("success", ["id" => $id], "Ordonnance supprimée");
     } catch (Exception $e) {
-        sendResponse("error", null, "Erreur suppression : " . $e->getMessage(), 500);
+        $db->rollBack();
+        sendResponse("error", null, "Erreur suppression ordonnance : " . $e->getMessage(), 500);
     }
 }
