@@ -47,6 +47,14 @@ function generatePatientPassword($lastName, $firstName, $phone) {
 
 function handleGetPatients($db) {
     try {
+        // Auto-réparation automatique : Si des patients ont id = 0, leur réassigner un ID valide
+        try {
+            $zeroP = $db->query("SELECT COUNT(*) FROM patients WHERE id = 0");
+            if ($zeroP && intval($zeroP->fetchColumn()) > 0) {
+                $db->exec("SET @new_pid = (SELECT COALESCE(MAX(id), 20) FROM patients WHERE id > 0); UPDATE patients SET id = (@new_pid := @new_pid + 1) WHERE id = 0;");
+            }
+        } catch (Exception $e) {}
+
         $id = isset($_GET['id']) ? intval($_GET['id']) : null;
         $search = isset($_GET['search']) ? trim($_GET['search']) : null;
 
@@ -166,13 +174,18 @@ function handleCreatePatient($db) {
             ? trim($body['password']) 
             : generatePatientPassword($body['lastName'], $body['firstName'], $body['phone'] ?? '');
 
+        // Calculer l'ID automatiquement pour garantir un ID unique même si AUTO_INCREMENT est manquant
+        $maxPidStmt = $db->query("SELECT COALESCE(MAX(id), 20) + 1 FROM patients WHERE id > 0");
+        $nextPatientId = intval($maxPidStmt->fetchColumn() ?: 21);
+
         $sql = "INSERT INTO patients 
-                    (file_number, first_name, last_name, dob, age, gender, phone, email, password, address, secu_number, blood_group, status)
+                    (id, file_number, first_name, last_name, dob, age, gender, phone, email, password, address, secu_number, blood_group, status)
                 VALUES 
-                    (:fn, :fname, :lname, :dob, :age, :gender, :phone, :email, :pwd, :addr, :secu, :bg, 'Actif')";
+                    (:id, :fn, :fname, :lname, :dob, :age, :gender, :phone, :email, :pwd, :addr, :secu, :bg, 'Actif')";
 
         $stmt = $db->prepare($sql);
         $stmt->execute([
+            ':id' => $nextPatientId,
             ':fn' => $fileNumber,
             ':fname' => trim($body['firstName']),
             ':lname' => trim($body['lastName']),
@@ -187,7 +200,7 @@ function handleCreatePatient($db) {
             ':bg' => $body['bloodGroup'] ?? 'O+'
         ]);
 
-        $newId = intval($db->lastInsertId());
+        $newId = $nextPatientId;
 
         // Sauvegarder allergies si spécifiées
         if (!empty($body['allergies']) && is_array($body['allergies'])) {

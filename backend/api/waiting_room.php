@@ -47,6 +47,14 @@ function calculateWaitingTicketNumber($timeStr) {
 
 function handleGetWaitingRoom($db) {
     try {
+        // Auto-réparation automatique : Si des entrées ont id = 0, leur réassigner un ID valide
+        try {
+            $zeroW = $db->query("SELECT COUNT(*) FROM waiting_room WHERE id = 0");
+            if ($zeroW && intval($zeroW->fetchColumn()) > 0) {
+                $db->exec("SET @new_wid = (SELECT COALESCE(MAX(id), 20) FROM waiting_room WHERE id > 0); UPDATE waiting_room SET id = (@new_wid := @new_wid + 1) WHERE id = 0;");
+            }
+        } catch (Exception $e) {}
+
         $sql = "SELECT w.*, 
                        COALESCE(NULLIF(TRIM(w.patient_name), ''), NULLIF(TRIM(CONCAT(COALESCE(p.first_name, ''), ' ', COALESCE(p.last_name, ''))), ''), 'Patient') AS patient_name,
                        p.dob AS patient_dob,
@@ -154,10 +162,15 @@ function handleCreateArrival($db) {
             $ticketNumber = calculateWaitingTicketNumber($appTime);
         }
 
-        $sql = "INSERT INTO waiting_room (patient_id, patient_name, patient_phone, appointment_id, ticket_number, appointment_time, arrival_time, reason, status) 
-                VALUES (:pid, :pname, :pphone, :aid, :tnum, :atime, :artime, :reason, 'En attente')";
+        // Calculer l'ID automatiquement pour garantir un ID unique même si AUTO_INCREMENT est manquant
+        $maxWidStmt = $db->query("SELECT COALESCE(MAX(id), 20) + 1 FROM waiting_room WHERE id > 0");
+        $nextWaitId = intval($maxWidStmt->fetchColumn() ?: 21);
+
+        $sql = "INSERT INTO waiting_room (id, patient_id, patient_name, patient_phone, appointment_id, ticket_number, appointment_time, arrival_time, reason, status) 
+                VALUES (:id, :pid, :pname, :pphone, :aid, :tnum, :atime, :artime, :reason, 'En attente')";
         $stmt = $db->prepare($sql);
         $stmt->execute([
+            ':id' => $nextWaitId,
             ':pid' => $patientId,
             ':pname' => $patientName ?: null,
             ':pphone' => $patientPhone ?: null,
@@ -168,7 +181,7 @@ function handleCreateArrival($db) {
             ':reason' => $reason
         ]);
 
-        sendResponse("success", ["id" => intval($db->lastInsertId()), "ticketNumber" => $ticketNumber], "Arrivée enregistrée avec succès", 201);
+        sendResponse("success", ["id" => $nextWaitId, "ticketNumber" => $ticketNumber], "Arrivée enregistrée avec succès", 201);
     } catch (Exception $e) {
         sendResponse("error", null, "Erreur enregistrement arrivée : " . $e->getMessage(), 500);
     }

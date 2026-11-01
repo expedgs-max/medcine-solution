@@ -1,5 +1,8 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { Modal, Button } from "react-bootstrap";
+import PrescriptionPreviewModal from "../components/Cabinet/PrescriptionPreviewModal";
+import EchoReportPrintModal from "../components/Cabinet/EchoReportPrintModal";
 import confetti from "canvas-confetti";
 import "../../css/patient-portal.css";
 import ApiService from "../../services/ApiService";
@@ -635,8 +638,11 @@ export default function PatientPortal() {
   const [patientDocuments, setPatientDocuments] = useState([]);
   const [patientDocsLoading, setPatientDocsLoading] = useState(false);
 
-  // Modale de prévisualisation (Voir) pour ordonnances, factures, échographies, documents
-  const [previewModal, setPreviewModal] = useState(null);
+  // Modales d'aperçu identiques à l'admin panel (Ordonnances, Échographies, Factures, Documents)
+  const [selectedPrescription, setSelectedPrescription] = useState(null);
+  const [selectedEchoConsultation, setSelectedEchoConsultation] = useState(null);
+  const [previewInvoice, setPreviewInvoice] = useState(null);
+  const [previewingDoc, setPreviewingDoc] = useState(null);
 
   // Sections déroulantes / accordéon (wishlist style) pour RDV et documents médicaux
   const [openSections, setOpenSections] = useState({
@@ -832,6 +838,8 @@ export default function PatientPortal() {
             if (c.echoType || c.echoFindings || c.echoConclusion || c.ultrasoundReport) {
               echosList.push({
                 id: `cs-${c.id}`,
+                consultationNumber: c.consultationNumber,
+                patientName: c.patientName,
                 title: c.echoType || `Compte-rendu d'échographie (${c.reason || "Examen"})`,
                 date: c.date,
                 author: clinicInfo.doctorName || "Dr N. BELBACHIR OULD HENNIA",
@@ -840,6 +848,13 @@ export default function PatientPortal() {
                 echoType: c.echoType,
                 echoData: c.echoData,
                 ultrasoundReport: c.ultrasoundReport,
+                diagnosis: c.diagnosis,
+                recommendations: c.recommendations,
+                examFindings: c.examFindings,
+                atcd: c.atcd,
+                calculated: c.calculated,
+                patientDetails: c.patientDetails,
+                rawConsultation: c,
                 isConsultation: true,
               });
             }
@@ -979,16 +994,27 @@ export default function PatientPortal() {
     return { pdf, filename: `${presc.prescriptionNumber || "Ordonnance"}_${pName.replace(/\s+/g, "_")}.pdf` };
   };
 
-  // Prévisualisation de l'ordonnance dans la modale
+  // Prévisualisation de l'ordonnance dans la modale officielle (identique à l'admin panel)
   const handleViewPrescription = (presc) => {
     try {
-      const { pdf, filename } = createPrescriptionPdf(presc);
-      const blobUrl = pdf.output("bloburl");
-      setPreviewModal({
-        title: presc.prescriptionNumber || "Ordonnance Médicale",
-        url: blobUrl,
-        type: "pdf",
-        onDownload: () => pdf.save(filename),
+      const pName = presc.patientName || (authenticatedPatient ? `${authenticatedPatient.lastName || ""} ${authenticatedPatient.firstName || ""}`.trim() : (patientName || "Patient"));
+      let items = presc.items;
+      if (typeof items === "string") {
+        try {
+          items = JSON.parse(items);
+        } catch (e) {
+          items = [];
+        }
+      }
+      if (!Array.isArray(items) || items.length === 0) {
+        items = [{ medication: "Traitement selon avis médical", posology: "Selon protocole", duration: "Selon prescription", renewable: "Non renouvelable" }];
+      }
+      setSelectedPrescription({
+        ...presc,
+        prescriptionNumber: presc.prescriptionNumber || `ORD-${presc.id || "001"}`,
+        patientName: pName,
+        date: presc.date || new Date().toISOString().split("T")[0],
+        items: items,
       });
     } catch (err) {
       console.error("Erreur visualisation ordonnance :", err);
@@ -996,6 +1022,7 @@ export default function PatientPortal() {
   };
 
   // Génération et téléchargement de l'ordonnance en PDF
+  // eslint-disable-next-line no-unused-vars
   const handleDownloadPrescription = (presc) => {
     try {
       const { pdf, filename } = createPrescriptionPdf(presc);
@@ -1146,38 +1173,61 @@ export default function PatientPortal() {
     return { pdf, filename: `Echographie_${(echo.title || "CR").replace(/\s+/g, "_")}_${pName.replace(/\s+/g, "_")}.pdf` };
   };
 
-  // Prévisualisation du compte-rendu d'échographie dans la modale
+  // Prévisualisation du compte-rendu d'échographie dans la modale officielle (identique à l'admin panel)
   const handleViewEchography = (echo) => {
     try {
-      if (echo.fileDataUrl) {
-        const isImg = (echo.fileType || "").includes("image") || echo.fileDataUrl.startsWith("data:image");
-        setPreviewModal({
-          title: echo.title || "Compte-rendu d'échographie",
-          url: echo.fileDataUrl,
-          type: isImg ? "image" : "pdf",
-          onDownload: () => {
-            const link = document.createElement("a");
-            link.href = echo.fileDataUrl;
-            link.download = `${echo.title || "Echographie"}.${isImg ? "jpg" : "pdf"}`;
-            link.click();
-          },
+      if (echo.fileDataUrl || (echo.isDocument && echo.filePath)) {
+        const fileSrc = echo.fileDataUrl || echo.filePath;
+        const fType = (echo.fileType || "").toUpperCase();
+        const isImg = fType.includes("IMAGE") || ["PNG", "JPG", "JPEG", "WEBP"].includes(fType) || (fileSrc && fileSrc.startsWith("data:image"));
+        setPreviewingDoc({
+          title: echo.title || "Compte-Rendu Échographique",
+          category: "Imagerie & Radiologie",
+          date: echo.date,
+          author: echo.author || clinicInfo.doctorName || "Dr N. BELBACHIR OULD HENNIA",
+          fileDataUrl: fileSrc,
+          isImage: isImg,
+          type: echo.fileType || (isImg ? "JPG" : "PDF"),
         });
         return;
       }
-      const { pdf, filename } = createEchographyPdf(echo);
-      const blobUrl = pdf.output("bloburl");
-      setPreviewModal({
-        title: echo.title || "Compte-rendu d'échographie",
-        url: blobUrl,
-        type: "pdf",
-        onDownload: () => pdf.save(filename),
-      });
+
+      const pName = authenticatedPatient
+        ? `${authenticatedPatient.lastName || ""} ${authenticatedPatient.firstName || ""}`.trim()
+        : (patientName || "Patiente");
+
+      const consultObj = {
+        id: echo.id || Date.now(),
+        consultationNumber: echo.consultationNumber || `CS-${(echo.date || "2026-10-31").replace(/-/g, "")}-01`,
+        patientName: pName,
+        date: echo.date || new Date().toISOString().split("T")[0],
+        reason: echo.title || echo.echoType || "Compte Rendu Échographique",
+        echoFindings: echo.echoFindings,
+        echoConclusion: echo.echoConclusion,
+        diagnosis: echo.diagnosis || echo.echoConclusion || echo.echoFindings || "Examen échographique sans anomalie décelable.",
+        recommendations: echo.recommendations,
+        examFindings: echo.examFindings,
+        echoData: echo.echoData || {},
+        patientDetails: echo.patientDetails || {
+          nom: authenticatedPatient?.lastName || pName,
+          prenom: authenticatedPatient?.firstName || "",
+          age: authenticatedPatient?.age ? `${authenticatedPatient.age} ans` : (authenticatedPatient?.dob ? `${new Date().getFullYear() - parseInt(authenticatedPatient.dob)} ans` : "-"),
+          ddr: authenticatedPatient?.ddr || "-",
+          termeDdr: authenticatedPatient?.terme || "-",
+        },
+        atcd: echo.atcd || {},
+        calculated: echo.calculated || {},
+        ...(echo.rawConsultation || {}),
+      };
+
+      setSelectedEchoConsultation(consultObj);
     } catch (err) {
       console.error("Erreur visualisation echographie :", err);
     }
   };
 
   // Téléchargement du compte-rendu d'échographie en PDF
+  // eslint-disable-next-line no-unused-vars
   const handleDownloadEchography = (echo) => {
     try {
       if (echo.fileDataUrl) {
@@ -1316,16 +1366,15 @@ export default function PatientPortal() {
     return { pdf, filename: `${inv.invoiceNumber || "Facture"}_${pName.replace(/\s+/g, "_")}.pdf` };
   };
 
-  // Prévisualisation de la facture dans la modale
+  // Prévisualisation de la facture dans la modale format Ticket 80 mm (identique à l'admin panel)
   const handleViewInvoice = (inv) => {
     try {
-      const { pdf, filename } = createInvoicePdf(inv);
-      const blobUrl = pdf.output("bloburl");
-      setPreviewModal({
-        title: inv.invoiceNumber || "Facture Médicale",
-        url: blobUrl,
-        type: "pdf",
-        onDownload: () => pdf.save(filename),
+      const pName = inv.patientName || (authenticatedPatient ? `${authenticatedPatient.lastName || ""} ${authenticatedPatient.firstName || ""}`.trim() : (patientName || "Patient"));
+      setPreviewInvoice({
+        ...inv,
+        patientName: pName,
+        invoiceNumber: inv.invoiceNumber || `FAC-${inv.id || "001"}`,
+        date: inv.date || new Date().toISOString().split("T")[0],
       });
     } catch (err) {
       console.error("Erreur visualisation facture :", err);
@@ -1333,6 +1382,7 @@ export default function PatientPortal() {
   };
 
   // Téléchargement de la facture en PDF
+  // eslint-disable-next-line no-unused-vars
   const handleDownloadInvoice = (inv) => {
     try {
       const { pdf, filename } = createInvoicePdf(inv);
@@ -1435,32 +1485,25 @@ export default function PatientPortal() {
     return { pdf, filename: `${(doc.title || "Document").replace(/\s+/g, "_")}_${pName.replace(/\s+/g, "_")}.pdf` };
   };
 
-  // Prévisualisation d'un document médical dans la modale
+  // Prévisualisation d'un document médical dans la modale (identique à l'admin panel)
   const handleViewDocument = (doc) => {
     try {
-      if (doc.fileDataUrl || doc.filePath) {
-        const fileSrc = doc.fileDataUrl || doc.filePath;
-        const fType = (doc.fileType || "").toUpperCase();
-        const isImg =
-          fType.includes("IMAGE") ||
-          ["PNG", "JPG", "JPEG", "WEBP", "GIF"].includes(fType) ||
-          fileSrc.startsWith("data:image") ||
-          /\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(fileSrc);
-        setPreviewModal({
-          title: doc.title || "Document Médical",
-          url: fileSrc,
-          type: isImg ? "image" : "pdf",
-          onDownload: () => handleDownloadDocument(doc),
-        });
-        return;
-      }
-      const { pdf, filename } = createDocumentPdf(doc);
-      const blobUrl = pdf.output("bloburl");
-      setPreviewModal({
+      const fileSrc = doc.fileDataUrl || doc.filePath;
+      const fType = (doc.fileType || doc.type || "").toUpperCase();
+      const isImg =
+        fType.includes("IMAGE") ||
+        ["PNG", "JPG", "JPEG", "WEBP", "GIF"].includes(fType) ||
+        (fileSrc && fileSrc.startsWith("data:image")) ||
+        /\.(jpe?g|png|webp|gif)(\?.*)?$/i.test(fileSrc || "");
+
+      setPreviewingDoc({
         title: doc.title || "Document Médical",
-        url: blobUrl,
-        type: "pdf",
-        onDownload: () => pdf.save(filename),
+        category: doc.category || "Document Médical",
+        date: doc.date || doc.doc_date || new Date().toISOString().split("T")[0],
+        author: doc.author || clinicInfo.doctorName || "Dr N. BELBACHIR OULD HENNIA",
+        fileDataUrl: fileSrc,
+        isImage: isImg,
+        type: fType || (isImg ? "JPG" : "PDF"),
       });
     } catch (err) {
       console.error("Erreur visualisation document :", err);
@@ -1468,6 +1511,7 @@ export default function PatientPortal() {
   };
 
   // Téléchargement d'un document médical (fichier joint ou PDF généré)
+  // eslint-disable-next-line no-unused-vars
   const handleDownloadDocument = async (doc) => {
     try {
       if (doc.fileDataUrl || doc.filePath) {
@@ -3138,8 +3182,8 @@ export default function PatientPortal() {
                                       color: "var(--accent-mint)",
                                       border: "1px solid rgba(2, 132, 199, 0.25)",
                                       borderRadius: "8px",
-                                      padding: "7px 11px",
-                                      fontSize: "11.5px",
+                                      padding: "7px 14px",
+                                      fontSize: "12px",
                                       fontWeight: "700",
                                       cursor: "pointer",
                                       display: "inline-flex",
@@ -3158,30 +3202,8 @@ export default function PatientPortal() {
                                     }}
                                     title="Visualiser la facture"
                                   >
-                                    <Eye size={13} />
+                                    <Eye size={14} />
                                     <span>Voir</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleDownloadInvoice(inv)}
-                                    style={{
-                                      background: "var(--accent-mint)",
-                                      color: "var(--accent-mint-dark)",
-                                      border: "none",
-                                      borderRadius: "8px",
-                                      padding: "7px 11px",
-                                      fontSize: "11.5px",
-                                      fontWeight: "700",
-                                      cursor: "pointer",
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: "5px",
-                                      whiteSpace: "nowrap",
-                                      transition: "all 0.2s ease",
-                                    }}
-                                    title="Télécharger la facture"
-                                  >
-                                    <Download size={13} />
-                                    <span>Télécharger</span>
                                   </button>
                                 </div>
                               </div>
@@ -3287,8 +3309,8 @@ export default function PatientPortal() {
                                       color: "var(--accent-mint)",
                                       border: "1px solid rgba(2, 132, 199, 0.25)",
                                       borderRadius: "8px",
-                                      padding: "7px 11px",
-                                      fontSize: "11.5px",
+                                      padding: "7px 14px",
+                                      fontSize: "12px",
                                       fontWeight: "700",
                                       cursor: "pointer",
                                       display: "inline-flex",
@@ -3307,30 +3329,8 @@ export default function PatientPortal() {
                                     }}
                                     title="Visualiser l'ordonnance"
                                   >
-                                    <Eye size={13} />
+                                    <Eye size={14} />
                                     <span>Voir</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleDownloadPrescription(presc)}
-                                    style={{
-                                      background: "var(--accent-mint)",
-                                      color: "var(--accent-mint-dark)",
-                                      border: "none",
-                                      borderRadius: "8px",
-                                      padding: "7px 11px",
-                                      fontSize: "11.5px",
-                                      fontWeight: "700",
-                                      cursor: "pointer",
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: "5px",
-                                      whiteSpace: "nowrap",
-                                      transition: "all 0.2s ease",
-                                    }}
-                                    title="Télécharger l'ordonnance"
-                                  >
-                                    <Download size={13} />
-                                    <span>Télécharger</span>
                                   </button>
                                 </div>
                               </div>
@@ -3436,8 +3436,8 @@ export default function PatientPortal() {
                                       color: "var(--accent-mint)",
                                       border: "1px solid rgba(2, 132, 199, 0.25)",
                                       borderRadius: "8px",
-                                      padding: "7px 11px",
-                                      fontSize: "11.5px",
+                                      padding: "7px 14px",
+                                      fontSize: "12px",
                                       fontWeight: "700",
                                       cursor: "pointer",
                                       display: "inline-flex",
@@ -3456,30 +3456,8 @@ export default function PatientPortal() {
                                     }}
                                     title="Visualiser le compte-rendu d'échographie"
                                   >
-                                    <Eye size={13} />
+                                    <Eye size={14} />
                                     <span>Voir</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleDownloadEchography(echo)}
-                                    style={{
-                                      background: "var(--accent-mint)",
-                                      color: "var(--accent-mint-dark)",
-                                      border: "none",
-                                      borderRadius: "8px",
-                                      padding: "7px 11px",
-                                      fontSize: "11.5px",
-                                      fontWeight: "700",
-                                      cursor: "pointer",
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: "5px",
-                                      whiteSpace: "nowrap",
-                                      transition: "all 0.2s ease",
-                                    }}
-                                    title="Télécharger le compte-rendu d'échographie"
-                                  >
-                                    <Download size={13} />
-                                    <span>Télécharger</span>
                                   </button>
                                 </div>
                               </div>
@@ -3585,8 +3563,8 @@ export default function PatientPortal() {
                                       color: "var(--accent-mint)",
                                       border: "1px solid rgba(2, 132, 199, 0.25)",
                                       borderRadius: "8px",
-                                      padding: "7px 11px",
-                                      fontSize: "11.5px",
+                                      padding: "7px 14px",
+                                      fontSize: "12px",
                                       fontWeight: "700",
                                       cursor: "pointer",
                                       display: "inline-flex",
@@ -3605,30 +3583,8 @@ export default function PatientPortal() {
                                     }}
                                     title="Visualiser le document"
                                   >
-                                    <Eye size={13} />
+                                    <Eye size={14} />
                                     <span>Voir</span>
-                                  </button>
-                                  <button
-                                    onClick={() => handleDownloadDocument(doc)}
-                                    style={{
-                                      background: "var(--accent-mint)",
-                                      color: "var(--accent-mint-dark)",
-                                      border: "none",
-                                      borderRadius: "8px",
-                                      padding: "7px 11px",
-                                      fontSize: "11.5px",
-                                      fontWeight: "700",
-                                      cursor: "pointer",
-                                      display: "inline-flex",
-                                      alignItems: "center",
-                                      gap: "5px",
-                                      whiteSpace: "nowrap",
-                                      transition: "all 0.2s ease",
-                                    }}
-                                    title="Télécharger le document"
-                                  >
-                                    <Download size={13} />
-                                    <span>Télécharger</span>
                                   </button>
                                 </div>
                               </div>
@@ -4061,220 +4017,235 @@ export default function PatientPortal() {
         </div>
       )}
 
-      {/* Modale de prévisualisation des documents médicaux */}
-      {previewModal && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0, 0, 0, 0.82)",
-            backdropFilter: "blur(12px)",
-            WebkitBackdropFilter: "blur(12px)",
-            zIndex: 10000,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "16px",
-          }}
-          onClick={() => setPreviewModal(null)}
-        >
-          <div
-            className="glass-panel"
-            style={{
-              width: "100%",
-              maxWidth: "850px",
-              height: "90vh",
-              maxHeight: "92vh",
-              display: "flex",
-              flexDirection: "column",
-              background: "#ffffff",
-              border: "1px solid var(--border-glow)",
-              borderRadius: "20px",
-              overflow: "hidden",
-              boxShadow: "0 25px 60px rgba(15, 23, 42, 0.25)",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header Modal */}
+      {/* =================================================================== */}
+      {/* MODALES D'APERÇU IDENTIQUES À CELLES DU PANNEAU D'ADMINISTRATION    */}
+      {/* =================================================================== */}
+
+      {/* 1. Modal Aperçu Officiel Ordonnance A5 (identique à l'admin panel) */}
+      <PrescriptionPreviewModal
+        show={!!selectedPrescription}
+        onHide={() => setSelectedPrescription(null)}
+        prescription={selectedPrescription}
+      />
+
+      {/* 2. Modal Aperçu Officiel Compte-Rendu Échographique (identique à l'admin panel) */}
+      <EchoReportPrintModal
+        show={!!selectedEchoConsultation}
+        onHide={() => setSelectedEchoConsultation(null)}
+        consultation={selectedEchoConsultation}
+      />
+
+      {/* 3. Modal Aperçu Facture Format Ticket 80 mm (identique à l'admin panel) */}
+      <Modal
+        show={!!previewInvoice}
+        onHide={() => setPreviewInvoice(null)}
+        centered
+        className="invoice-preview-modal"
+      >
+        <style>{`
+          @media print {
+            @page {
+              size: 80mm auto;
+              margin: 0;
+            }
+            html, body {
+              width: 80mm !important;
+              max-width: 80mm !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #ffffff !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            body * {
+              visibility: hidden !important;
+            }
+            #simple-invoice-printable-portal,
+            #simple-invoice-printable-portal * {
+              visibility: visible !important;
+            }
+            #simple-invoice-printable-portal {
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 80mm !important;
+              max-width: 80mm !important;
+              margin: 0 auto !important;
+              padding: 5mm 4mm !important;
+              box-sizing: border-box !important;
+              border: none !important;
+              box-shadow: none !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
+              font-size: 12px !important;
+            }
+            .modal, .modal-dialog, .modal-content, .modal-body {
+              padding: 0 !important;
+              margin: 0 !important;
+              border: none !important;
+              box-shadow: none !important;
+              background: transparent !important;
+            }
+            .modal-backdrop, .modal-header, .modal-footer, .btn, .btn-close, .no-print {
+              display: none !important;
+            }
+          }
+        `}</style>
+        <div className="modal-header py-2 px-3 border-bottom">
+          <h5 className="modal-title font-w600 fs-16 mb-0 text-dark">Facture (Format Ticket 80 mm)</h5>
+          <button type="button" className="btn-close" onClick={() => setPreviewInvoice(null)}></button>
+        </div>
+        <div className="modal-body p-3 d-flex justify-content-center" style={{ backgroundColor: "#f8fafc" }}>
+          {previewInvoice && (
             <div
+              id="simple-invoice-printable-portal"
+              className="bg-white p-3 rounded shadow-sm border"
               style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "14px 18px",
-                borderBottom: "1px solid rgba(2, 132, 199, 0.15)",
-                background: "#f8fafc",
+                width: "100%",
+                maxWidth: "340px",
+                color: "#1e293b",
+                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
-                <div
-                  style={{
-                    width: "32px",
-                    height: "32px",
-                    borderRadius: "8px",
-                    background: "rgba(2, 132, 199, 0.1)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "var(--accent-mint)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <Eye size={16} />
+              {/* 1. NOM DU CABINET */}
+              <div className="text-center pb-3 mb-2" style={{ borderBottom: "1px dashed #cbd5e1" }}>
+                <h5 className="font-w700 text-dark mb-1" style={{ fontSize: "15px", letterSpacing: "0.2px" }}>
+                  {clinicInfo.doctorName || "Dr N. BELBACHIR OULD HENNIA"}
+                </h5>
+                <div className="text-primary font-w600" style={{ fontSize: "12px" }}>
+                  {clinicInfo.clinicName || "Cabinet Médical de Gynécologie Obstétrique"}
                 </div>
-                <h3
-                  style={{
-                    margin: 0,
-                    fontSize: "14.5px",
-                    fontWeight: "700",
-                    color: "var(--text-primary)",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {previewModal.title || "Aperçu du document"}
-                </h3>
+                <div className="text-muted" style={{ fontSize: "11px", marginTop: "2px" }}>
+                  Tél: {clinicInfo.secretaryPhone || clinicInfo.phone || "0560 06 74 66"} • {clinicInfo.city || "Oran"}
+                </div>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexShrink: 0 }}>
-                {previewModal.url && (
-                  <a
-                    href={previewModal.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    style={{
-                      background: "#ffffff",
-                      color: "var(--accent-mint)",
-                      padding: "7px 12px",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      textDecoration: "none",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "5px",
-                      border: "1px solid rgba(2, 132, 199, 0.25)",
-                    }}
-                    title="Ouvrir en plein écran dans un nouvel onglet"
-                  >
-                    <span>Plein écran</span>
-                  </a>
-                )}
-                {previewModal.onDownload && (
-                  <button
-                    onClick={previewModal.onDownload}
-                    style={{
-                      background: "var(--accent-mint)",
-                      color: "var(--accent-mint-dark)",
-                      border: "none",
-                      padding: "7px 12px",
-                      borderRadius: "8px",
-                      fontSize: "12px",
-                      fontWeight: "700",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "5px",
-                    }}
-                    title="Télécharger"
-                  >
-                    <Download size={13} />
-                    <span>Télécharger</span>
-                  </button>
-                )}
-                <button
-                  onClick={() => setPreviewModal(null)}
-                  style={{
-                    background: "#e2e8f0",
-                    border: "none",
-                    color: "var(--text-primary)",
-                    borderRadius: "8px",
-                    width: "32px",
-                    height: "32px",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                  }}
-                  title="Fermer"
-                >
-                  <X size={18} />
-                </button>
+              {/* 2. INFOS FACTURE & NOM DU PATIENT */}
+              <div className="py-2 mb-2" style={{ borderBottom: "1px dashed #cbd5e1", fontSize: "12px" }}>
+                <div className="d-flex justify-content-between mb-1">
+                  <span className="text-muted">N° Facture :</span>
+                  <strong className="text-dark font-monospace">{previewInvoice.invoiceNumber}</strong>
+                </div>
+                <div className="d-flex justify-content-between mb-1">
+                  <span className="text-muted">Date :</span>
+                  <span className="text-dark font-w500">
+                    {previewInvoice.date} {previewInvoice.time ? `• ${previewInvoice.time}` : "• 10:30"}
+                  </span>
+                </div>
+                <div className="d-flex justify-content-between align-items-center mt-2 pt-1" style={{ borderTop: "1px dotted #e2e8f0" }}>
+                  <span className="text-muted">Patient(e) :</span>
+                  <strong className="text-dark text-uppercase fs-13 font-w700">
+                    {(previewInvoice.patientName || "").replace(/\s*\(sc\)\s*/gi, "").trim()}
+                  </strong>
+                </div>
+              </div>
+
+              {/* 3. TYPE DE CONSULTATION */}
+              <div className="py-2 mb-2" style={{ borderBottom: "1px dashed #cbd5e1" }}>
+                <span className="text-muted d-block text-uppercase" style={{ fontSize: "11px", fontWeight: "600" }}>
+                  Type de consultation
+                </span>
+                <div className="text-dark font-w600 mt-1" style={{ fontSize: "13px" }}>
+                  {previewInvoice.actDescription || previewInvoice.description || "Consultation Médicale"}
+                </div>
+              </div>
+
+              {/* 4. LE PRIX (MONTANT) */}
+              <div className="py-3 text-center mb-2" style={{ borderBottom: "1px dashed #cbd5e1", backgroundColor: "#f0fdf4", borderRadius: "6px" }}>
+                <span className="text-muted text-uppercase d-block" style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.5px" }}>
+                  Total à payer
+                </span>
+                <div className="font-w800 mt-1" style={{ fontSize: "24px", color: "#059669", letterSpacing: "0.5px" }}>
+                  {previewInvoice.amount ? Number(previewInvoice.amount).toLocaleString("fr-DZ") : "0"} DA
+                </div>
+              </div>
+
+              {/* Statut du règlement */}
+              <div className="d-flex justify-content-between align-items-center py-2" style={{ fontSize: "12px" }}>
+                <span className="text-muted">Statut :</span>
+                <span className="badge bg-success text-white">
+                  {previewInvoice.status || "Réglé / Validé"}
+                </span>
               </div>
             </div>
-
-            {/* Body Modal Preview */}
-            <div style={{ flex: 1, padding: "12px", overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", minHeight: 0, background: "#f1f5f9" }}>
-              {previewModal.type === "image" ? (
-                <>
-                  <img
-                    src={previewModal.url}
-                    alt={previewModal.title}
-                    style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", borderRadius: "8px" }}
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                      const fb = document.getElementById("imgPreviewFallback");
-                      if (fb) fb.style.display = "flex";
-                    }}
-                  />
-                  <div
-                    id="imgPreviewFallback"
-                    style={{
-                      display: "none",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      padding: "30px 20px",
-                      textAlign: "center",
-                      background: "#ffffff",
-                      borderRadius: "12px",
-                      border: "1px dashed #cbd5e1",
-                      maxWidth: "360px",
-                    }}
-                  >
-                    <div style={{ fontSize: "36px", marginBottom: "10px" }}>📷</div>
-                    <h6 style={{ fontWeight: 700, color: "#1e293b", marginBottom: "6px" }}>
-                      Impossible d'afficher l'aperçu de l'image
-                    </h6>
-                    <p style={{ fontSize: "12px", color: "#64748b", marginBottom: "14px" }}>
-                      L'image a été importée dans un format non supporté ou est trop ancienne.
-                    </p>
-                    {previewModal.onDownload && (
-                      <button
-                        onClick={previewModal.onDownload}
-                        style={{
-                          background: "var(--accent-mint)",
-                          color: "var(--accent-mint-dark)",
-                          border: "none",
-                          padding: "8px 16px",
-                          borderRadius: "8px",
-                          fontSize: "12px",
-                          fontWeight: "700",
-                          cursor: "pointer",
-                        }}
-                      >
-                        Télécharger le fichier
-                      </button>
-                    )}
-                  </div>
-                </>
-              ) : (
-                <iframe
-                  src={previewModal.url}
-                  title={previewModal.title}
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    border: "none",
-                    borderRadius: "10px",
-                    background: "#fff",
-                  }}
-                />
-              )}
-            </div>
-          </div>
+          )}
         </div>
+        <div className="modal-footer py-2 px-3 border-top">
+          <Button variant="secondary" onClick={() => setPreviewInvoice(null)}>
+            Fermer
+          </Button>
+          <Button variant="primary" onClick={() => window.print()}>
+            Imprimer
+          </Button>
+        </div>
+      </Modal>
+
+      {/* 4. Lightbox / Modal d'Aperçu Photo et Document Médical (identique à l'admin panel) */}
+      {previewingDoc && (
+        <Modal
+          show={!!previewingDoc}
+          onHide={() => setPreviewingDoc(null)}
+          centered
+          size="lg"
+        >
+          <div className="modal-header border-0 pb-0">
+            <div>
+              <h5 className="modal-title font-w700 text-dark mb-0">
+                {previewingDoc.title}
+              </h5>
+              <small className="text-muted">
+                {previewingDoc.category} • {previewingDoc.date} • {previewingDoc.author}
+              </small>
+            </div>
+            <button
+              type="button"
+              className="btn-close"
+              onClick={() => setPreviewingDoc(null)}
+            ></button>
+          </div>
+          <div className="modal-body text-center p-4">
+            {previewingDoc.fileDataUrl && (previewingDoc.isImage || ["JPG", "JPEG", "PNG", "WEBP"].includes((previewingDoc.type || "").toUpperCase())) ? (
+              <img
+                src={previewingDoc.fileDataUrl}
+                alt={previewingDoc.title}
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "70vh",
+                  objectFit: "contain",
+                  borderRadius: "10px",
+                  boxShadow: "0 4px 20px rgba(0, 0, 0, 0.15)",
+                }}
+              />
+            ) : previewingDoc.fileDataUrl ? (
+              <iframe
+                src={previewingDoc.fileDataUrl}
+                title={previewingDoc.title}
+                style={{
+                  width: "100%",
+                  height: "70vh",
+                  border: "none",
+                  borderRadius: "10px",
+                }}
+              />
+            ) : (
+              <div className="p-5 bg-light rounded text-center">
+                <i className="fa fa-file-pdf fs-48 text-danger mb-3 d-block"></i>
+                <h6 className="font-w600 text-dark">{previewingDoc.title}</h6>
+                <p className="text-muted fs-13 mb-3">Fichier document {previewingDoc.type || "PDF"}</p>
+              </div>
+            )}
+          </div>
+          <div className="modal-footer border-0 pt-0">
+            <button
+              type="button"
+              className="btn btn-outline-secondary"
+              onClick={() => setPreviewingDoc(null)}
+            >
+              Fermer
+            </button>
+          </div>
+        </Modal>
       )}
       </div>
     </div>

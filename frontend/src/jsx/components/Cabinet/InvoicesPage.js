@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Modal, Button } from "react-bootstrap";
 import Swal from "sweetalert2";
 import PageTitle from "../../layouts/PageTitle";
+import { WheelDatePickerModal } from "./WheelDatePicker";
 import ApiService from "../../../services/ApiService";
 import {
   initialDoctor,
@@ -16,6 +17,8 @@ const InvoicesPage = () => {
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [selectedDate, setSelectedDate] = useState("");
+  const [showDatePickerModal, setShowDatePickerModal] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
   const [previewInvoice, setPreviewInvoice] = useState(null);
 
@@ -166,26 +169,82 @@ const InvoicesPage = () => {
     });
   };
 
-  const filteredInvoices = invoices.filter((inv) => {
-    const search = searchTerm.toLowerCase();
+  // Helpers de date & navigation par jour
+  const todayStr = (() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  })();
+
+  const formatDateFr = (dateStr) => {
+    if (!dateStr) return "";
+    const clean = String(dateStr).trim().split("T")[0].split(" ")[0];
+    const parts = clean.split("-");
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
+  };
+
+  const getInvDateStr = (inv) => {
+    if (!inv || !inv.date) return "";
+    return String(inv.date).trim().split("T")[0].split(" ")[0];
+  };
+
+  const handlePrevDay = () => {
+    const base = selectedDate ? new Date(selectedDate) : new Date(todayStr);
+    base.setDate(base.getDate() - 1);
+    const year = base.getFullYear();
+    const month = String(base.getMonth() + 1).padStart(2, "0");
+    const day = String(base.getDate()).padStart(2, "0");
+    setSelectedDate(`${year}-${month}-${day}`);
+  };
+
+  const handleNextDay = () => {
+    const base = selectedDate ? new Date(selectedDate) : new Date(todayStr);
+    base.setDate(base.getDate() + 1);
+    const year = base.getFullYear();
+    const month = String(base.getMonth() + 1).padStart(2, "0");
+    const day = String(base.getDate()).padStart(2, "0");
+    setSelectedDate(`${year}-${month}-${day}`);
+  };
+
+  // Caisse Aujourd'hui (fixe et toujours calculée pour aujourd'hui)
+  const todayInvoices = invoices.filter((inv) => getInvDateStr(inv) === todayStr);
+  const todayRevenue = todayInvoices.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  const todayCount = todayInvoices.length;
+
+  // Factures selon la date sélectionnée (ou toutes si aucune date sélectionnée)
+  const dateFilteredInvoices = selectedDate
+    ? invoices.filter((inv) => getInvDateStr(inv) === selectedDate)
+    : invoices;
+
+  const currentTotal = dateFilteredInvoices.reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
+  const currentCount = dateFilteredInvoices.length;
+  const currentAvg = Math.round(currentTotal / (currentCount || 1));
+
+  // Filtrage final avec recherche texte
+  const filteredInvoices = dateFilteredInvoices.filter((inv) => {
+    const search = searchTerm.toLowerCase().trim();
+    if (!search) return true;
     return (
-      inv.patientName.toLowerCase().includes(search) ||
-      inv.invoiceNumber.toLowerCase().includes(search) ||
-      inv.actDescription.toLowerCase().includes(search)
+      (inv.patientName || "").toLowerCase().includes(search) ||
+      (inv.invoiceNumber || "").toLowerCase().includes(search) ||
+      (inv.actDescription || "").toLowerCase().includes(search)
     );
   });
-
-  const totalBilled = invoices.reduce((acc, curr) => acc + curr.amount, 0);
-  const avgAmount = Math.round(totalBilled / (invoices.length || 1));
 
   return (
     <>
       <PageTitle motherMenu="Gestion administrative" activeMenu="Factures" />
 
-      {/* Barre d'action supérieure */}
+      {/* Barre d'action supérieure avec Recherche et Sélecteur Voir par Jour */}
       <div className="form-head d-flex mb-3 mb-md-4 align-items-center flex-wrap justify-content-between gap-2">
         <div className="d-flex align-items-center gap-2 flex-wrap">
-          <div className="input-group search-area" style={{ width: "auto", minWidth: "260px" }}>
+          {/* Recherche */}
+          <div className="input-group search-area" style={{ width: "auto", minWidth: "250px" }}>
             <input
               type="text"
               className="form-control"
@@ -196,6 +255,85 @@ const InvoicesPage = () => {
             <span className="input-group-text">
               <i className="flaticon-381-search-2"></i>
             </span>
+          </div>
+
+          {/* Outil "Voir par jour" & navigation de date */}
+          <div className="d-flex align-items-center bg-white border rounded-3 p-1 gap-1 shadow-sm flex-wrap">
+            <button
+              type="button"
+              className={`btn btn-xs ${!selectedDate ? "btn-primary" : "btn-light"}`}
+              onClick={() => setSelectedDate("")}
+              style={{ fontWeight: "600", borderRadius: "6px" }}
+              title="Afficher toutes les factures"
+            >
+              Toutes les dates
+            </button>
+            <button
+              type="button"
+              className={`btn btn-xs ${selectedDate === todayStr ? "btn-success text-white" : "btn-light"}`}
+              onClick={() => setSelectedDate(todayStr)}
+              style={{ fontWeight: "600", borderRadius: "6px" }}
+              title="Voir la caisse et factures d'aujourd'hui"
+            >
+              <i className="fa fa-calendar-day me-1"></i> Aujourd'hui
+            </button>
+            <div className="vr my-1 mx-1 d-none d-sm-block" style={{ opacity: 0.2 }}></div>
+            <div className="d-flex align-items-center gap-1">
+              <button
+                type="button"
+                className="btn btn-xs btn-light px-2"
+                onClick={handlePrevDay}
+                title="Jour précédent"
+                style={{ borderRadius: "6px" }}
+              >
+                <i className="fa fa-chevron-left fs-11"></i>
+              </button>
+              <button
+                type="button"
+                className="btn btn-xs btn-light px-2 d-flex align-items-center gap-1 border"
+                style={{
+                  height: "30px",
+                  fontSize: "12px",
+                  fontWeight: "600",
+                  borderRadius: "6px",
+                  backgroundColor: selectedDate ? "rgba(30, 96, 213, 0.08)" : "#f8fafc",
+                  color: selectedDate ? "#1e60d5" : "#334155",
+                  borderColor: selectedDate ? "#1e60d5" : "#e2e8f0",
+                }}
+                onClick={() => setShowDatePickerModal(true)}
+                title="Sélectionner une date avec la roue calendrier"
+              >
+                <i className="fa fa-calendar-alt text-primary"></i>
+                <span>{selectedDate ? formatDateFr(selectedDate) : "Choisir date"}</span>
+              </button>
+              <WheelDatePickerModal
+                isOpen={showDatePickerModal}
+                onClose={() => setShowDatePickerModal(false)}
+                initialDate={selectedDate || todayStr}
+                onConfirm={(newDate) => setSelectedDate(newDate)}
+                title="SÉLECTIONNER LE JOUR"
+              />
+              <button
+                type="button"
+                className="btn btn-xs btn-light px-2"
+                onClick={handleNextDay}
+                title="Jour suivant"
+                style={{ borderRadius: "6px" }}
+              >
+                <i className="fa fa-chevron-right fs-11"></i>
+              </button>
+              {selectedDate && (
+                <button
+                  type="button"
+                  className="btn btn-xs btn-outline-danger px-2 ms-1"
+                  onClick={() => setSelectedDate("")}
+                  title="Effacer le filtre et voir toutes les dates"
+                  style={{ borderRadius: "6px" }}
+                >
+                  <i className="fa fa-times"></i>
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -208,52 +346,106 @@ const InvoicesPage = () => {
         </Button>
       </div>
 
-      {/* Cartes métriques de facturation */}
+      {/* Cartes métriques de facturation & Total Caisse Aujourd'hui */}
       <div className="row">
-        <div className="col-xl-4 col-sm-6">
-          <div className="card widget-stat">
+        {/* Carte 1 : Total Caisse Aujourd'hui */}
+        <div className="col-xl-3 col-sm-6">
+          <div
+            className="card widget-stat"
+            onClick={() => setSelectedDate(todayStr)}
+            style={{
+              cursor: "pointer",
+              transition: "transform 0.15s ease, box-shadow 0.15s ease",
+              border: selectedDate === todayStr ? "2px solid #10b981" : "none",
+            }}
+            title="Cliquer pour afficher les factures d'aujourd'hui"
+          >
             <div className="card-body p-4">
               <div className="media align-items-center">
-                <span className="me-3 icon-bx-lg bg-primary text-white rounded-circle d-flex align-items-center justify-content-center">
+                <span className="me-3 icon-bx-lg bg-success text-white rounded-circle d-flex align-items-center justify-content-center shadow-sm">
+                  <i className="flaticon-381-calendar-1 fs-24"></i>
+                </span>
+                <div className="media-body text-end">
+                  <p className="mb-1 text-muted">Caisse Aujourd'hui</p>
+                  <h3 className="text-success font-w700 mb-0">
+                    {todayRevenue.toLocaleString("fr-DZ")} DA
+                  </h3>
+                  <small className="text-muted font-w500">
+                    {todayCount} acte{todayCount > 1 ? "s" : ""} encaissé{todayCount > 1 ? "s" : ""}
+                  </small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Carte 2 : Total Facturé / Caisse du jour sélectionné */}
+        <div className="col-xl-3 col-sm-6">
+          <div
+            className="card widget-stat"
+            onClick={() => selectedDate ? setSelectedDate("") : null}
+            style={{
+              cursor: selectedDate ? "pointer" : "default",
+              border: !selectedDate ? "2px solid #1e60d5" : "none",
+            }}
+            title={selectedDate ? "Cliquer pour réafficher le total global" : ""}
+          >
+            <div className="card-body p-4">
+              <div className="media align-items-center">
+                <span className="me-3 icon-bx-lg bg-primary text-white rounded-circle d-flex align-items-center justify-content-center shadow-sm">
                   <i className="flaticon-381-calculator fs-24"></i>
                 </span>
                 <div className="media-body text-end">
-                  <p className="mb-1 text-muted">Total Facturé</p>
-                  <h3 className="text-primary font-w600 mb-0">{totalBilled.toLocaleString("fr-DZ")} DA</h3>
-                  <small className="text-muted">{invoices.length} factures</small>
+                  <p className="mb-1 text-muted font-w600">
+                    {selectedDate ? (selectedDate === todayStr ? "Total Aujourd'hui" : `Caisse du ${formatDateFr(selectedDate)}`) : "Total Facturé"}
+                  </p>
+                  <h3 className="text-primary font-w700 mb-0">
+                    {currentTotal.toLocaleString("fr-DZ")} DA
+                  </h3>
+                  <small className="text-muted">
+                    {currentCount} facture{currentCount > 1 ? "s" : ""} {selectedDate ? "ce jour" : "au total"}
+                  </small>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="col-xl-4 col-sm-6">
+        {/* Carte 3 : Nombre d'actes */}
+        <div className="col-xl-3 col-sm-6">
           <div className="card widget-stat">
             <div className="card-body p-4">
               <div className="media align-items-center">
-                <span className="me-3 icon-bx-lg bg-success text-white rounded-circle d-flex align-items-center justify-content-center">
+                <span className="me-3 icon-bx-lg bg-warning text-white rounded-circle d-flex align-items-center justify-content-center shadow-sm">
                   <i className="flaticon-381-notepad-1 fs-24"></i>
                 </span>
                 <div className="media-body text-end">
-                  <p className="mb-1 text-muted">Nombre d'actes</p>
-                  <h3 className="text-success font-w600 mb-0">{invoices.length}</h3>
-                  <small className="text-muted">Actes médicaux enregistrés</small>
+                  <p className="mb-1 text-muted font-w600">
+                    {selectedDate ? "Actes du jour" : "Nombre d'actes"}
+                  </p>
+                  <h3 className="text-warning font-w700 mb-0">{currentCount}</h3>
+                  <small className="text-muted">
+                    {selectedDate ? "Actes enregistrés ce jour" : "Actes médicaux enregistrés"}
+                  </small>
                 </div>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="col-xl-4 col-sm-6">
+        {/* Carte 4 : Moyenne par acte */}
+        <div className="col-xl-3 col-sm-6">
           <div className="card widget-stat">
             <div className="card-body p-4">
               <div className="media align-items-center">
-                <span className="me-3 icon-bx-lg bg-info text-white rounded-circle d-flex align-items-center justify-content-center">
+                <span className="me-3 icon-bx-lg bg-info text-white rounded-circle d-flex align-items-center justify-content-center shadow-sm">
                   <i className="flaticon-381-diamond fs-24"></i>
                 </span>
                 <div className="media-body text-end">
-                  <p className="mb-1 text-muted">Moyenne par acte</p>
-                  <h3 className="text-info font-w600 mb-0">{avgAmount.toLocaleString("fr-DZ")} DA</h3>
+                  <p className="mb-1 text-muted font-w600">Moyenne par acte</p>
+                  <h3 className="text-info font-w700 mb-0">
+                    {currentAvg.toLocaleString("fr-DZ")} DA
+                  </h3>
                   <small className="text-muted">Montant moyen facturé</small>
                 </div>
               </div>
@@ -430,15 +622,27 @@ const InvoicesPage = () => {
         </form>
       </Modal>
 
-      {/* Modal Aperçu & Impression Facture Patient Simple */}
+      {/* Modal Aperçu & Impression Facture Format Ticket 80 mm */}
       <Modal
         show={!!previewInvoice}
         onHide={() => setPreviewInvoice(null)}
-        size="lg"
         centered
       >
         <style>{`
           @media print {
+            @page {
+              size: 80mm auto;
+              margin: 0;
+            }
+            html, body {
+              width: 80mm !important;
+              max-width: 80mm !important;
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #ffffff !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
             body * {
               visibility: hidden !important;
             }
@@ -447,180 +651,151 @@ const InvoicesPage = () => {
               visibility: visible !important;
             }
             #simple-invoice-printable {
-              position: fixed !important;
+              position: absolute !important;
               left: 0 !important;
               top: 0 !important;
-              width: 100% !important;
-              padding: 25px !important;
-              margin: 0 !important;
+              width: 80mm !important;
+              max-width: 80mm !important;
+              margin: 0 auto !important;
+              padding: 5mm 4mm !important;
+              box-sizing: border-box !important;
               border: none !important;
               box-shadow: none !important;
               background: #ffffff !important;
               color: #000000 !important;
-              -webkit-print-color-adjust: exact !important;
-              print-color-adjust: exact !important;
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif !important;
+              font-size: 12px !important;
+            }
+            .modal, .modal-dialog, .modal-content, .modal-body {
+              padding: 0 !important;
+              margin: 0 !important;
+              border: none !important;
+              box-shadow: none !important;
+              background: transparent !important;
+            }
+            .modal-backdrop, .modal-header, .modal-footer, .btn, .btn-close, .no-print {
+              display: none !important;
             }
           }
         `}</style>
-        <div className="modal-header">
-          <h5 className="modal-title font-w600">Facture Médicale • فاتورة طبية</h5>
+        <div className="modal-header py-2 px-3">
+          <h5 className="modal-title font-w600 fs-16">Facture (Format Ticket 80 mm)</h5>
           <button type="button" className="btn-close" onClick={() => setPreviewInvoice(null)}></button>
         </div>
-        <div className="modal-body p-4" style={{ backgroundColor: "#f1f5f9" }}>
+        <div className="modal-body p-3 d-flex justify-content-center" style={{ backgroundColor: "#f8fafc" }}>
           {previewInvoice && (
-            <div id="simple-invoice-printable" className="p-4 bg-white shadow-sm border rounded">
-              {/* En-tête officiel bilingue : Français (gauche) & Arabe (droite) */}
-              <div className="row pb-3 mb-3 border-bottom align-items-center">
-                <div className="col-6 text-start">
-                  <h4 className="text-primary font-w700 mb-1" style={{ fontSize: "1.2rem" }}>
-                    {initialDoctor.name}
-                  </h4>
-                  <p className="text-dark font-w500 fs-13 mb-0">
-                    {initialDoctor.title}
-                  </p>
-                  <p className="text-muted fs-12 mb-0">
-                    {initialDoctor.subSpecialty || "Échographie"} • Tél: {initialDoctor.phone}
-                  </p>
+            <div
+              id="simple-invoice-printable"
+              className="bg-white p-3 rounded shadow-sm border"
+              style={{
+                width: "100%",
+                maxWidth: "340px",
+                color: "#1e293b",
+                fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+              }}
+            >
+              {/* 1. NOM DU CABINET */}
+              <div className="text-center pb-3 mb-2" style={{ borderBottom: "1px dashed #cbd5e1" }}>
+                <h5 className="font-w700 text-dark mb-1" style={{ fontSize: "15px", letterSpacing: "0.2px" }}>
+                  {initialDoctor.name || "Dr N. BELBACHIR OULD HENNIA"}
+                </h5>
+                <div className="text-primary font-w600" style={{ fontSize: "12px" }}>
+                  {initialDoctor.title || "Cabinet Médical de Gynécologie Obstétrique"}
                 </div>
-
-                <div className="col-6 text-end" dir="rtl">
-                  <h4 className="text-primary font-w700 mb-1" style={{ fontSize: "1.3rem", fontFamily: "'Segoe UI', Tahoma, Arial, sans-serif" }}>
-                    {initialDoctor.nameAr || "الدكتورة ن. بلبشير ولد هنية"}
-                  </h4>
-                  <p className="text-dark font-w500 fs-13 mb-0" style={{ fontFamily: "'Segoe UI', Tahoma, Arial, sans-serif" }}>
-                    {initialDoctor.titleAr || "طبيبة مختصة في أمراض النساء والتوليد"}
-                  </p>
-                  <p className="text-muted fs-12 mb-0" style={{ fontFamily: "'Segoe UI', Tahoma, Arial, sans-serif" }}>
-                    فحص بالصدى (إيكوغرافيا)
-                  </p>
+                <div className="text-muted" style={{ fontSize: "11px", marginTop: "2px" }}>
+                  Tél: {initialDoctor.phone || "0560 06 74 66"} • Oran
                 </div>
               </div>
 
-              {/* Informations Essentielles : Patient, Facture N°, Date & Heure, Mot de passe */}
-              <div
-                className="p-3 rounded-3 mb-3 border"
-                style={{
-                  backgroundColor: "#f8fafc",
-                  borderColor: "#e2e8f0",
-                }}
-              >
-                <div className="row g-3">
-                  <div className="col-sm-6">
-                    <span className="text-muted fs-12 d-block text-uppercase">Patient(e) / المريض(ة)</span>
-                    <strong className="fs-16 text-dark">{cleanPatientName(previewInvoice.patientName)}</strong>
-                  </div>
-                  <div className="col-sm-6 text-sm-end">
-                    <span className="text-muted fs-12 d-block text-uppercase">N° Facture / رقم الفاتورة</span>
-                    <strong className="fs-15 text-primary">{previewInvoice.invoiceNumber}</strong>
-                  </div>
-                  <div className="col-sm-6">
-                    <span className="text-muted fs-12 d-block text-uppercase">Date & Heure / التاريخ والوقت</span>
-                    <span className="fs-14 text-dark font-w600">
-                      📅 {previewInvoice.date} • 🕒 {previewInvoice.time || "10:30"}
-                    </span>
-                  </div>
+              {/* 2. INFOS FACTURE & NOM DU PATIENT */}
+              <div className="py-2 mb-2" style={{ borderBottom: "1px dashed #cbd5e1", fontSize: "12px" }}>
+                <div className="d-flex justify-content-between mb-1">
+                  <span className="text-muted">N° Facture :</span>
+                  <strong className="text-dark font-monospace">{previewInvoice.invoiceNumber}</strong>
                 </div>
-              </div>
-
-              {/* Banderole Accès Portail Patient pour le Ticket de Caisse avec QR Code exact */}
-              {!previewInvoice.isGuest && previewInvoice.patientId && !previewInvoice.patientName?.includes('(sc)') && !previewInvoice.patientName?.toLowerCase().includes('sans compte') && (
-              <div
-                className="p-3 mb-3 rounded border d-flex justify-content-between align-items-center flex-wrap gap-3"
-                style={{
-                  backgroundColor: "#eff6ff",
-                  borderColor: "#93c5fd",
-                  borderStyle: "dashed",
-                  borderWidth: "1.5px",
-                }}
-              >
-                <div style={{ flex: "1 1 210px", minWidth: "200px" }}>
-                  <div className="d-flex align-items-center gap-2 mb-1">
-                    <span className="fs-16">🔑</span>
-                    <strong className="text-primary fs-14">
-                      Espace Patient en Ligne • فضاء المريض
-                    </strong>
-                  </div>
-                  <div className="text-muted fs-12 mb-2">
-                    Identifiant : <strong className="text-dark">{previewInvoice.patientPhone || patients.find((p) => p.id === previewInvoice.patientId)?.phone || "N° Téléphone"}</strong>
-                  </div>
-                  <div className="d-flex align-items-center gap-2">
-                    <span className="text-muted fs-11 text-uppercase font-w600">
-                      Mot de passe / كلمة السر :
-                    </span>
-                    <span
-                      className="badge bg-primary text-white font-w800 fs-15 px-3 py-1 shadow-sm"
-                      style={{ letterSpacing: "1.5px", fontFamily: "monospace" }}
-                    >
-                      {getPatientPassword(previewInvoice)}
-                    </span>
-                  </div>
-                </div>
-
-                {/* QR Code exact pour accès direct (https://belbachir.azizbtph.com/profil) */}
-                <div className="d-flex flex-column align-items-center justify-content-center text-center" style={{ flexShrink: 0 }}>
-                  <div
-                    style={{
-                      background: "#ffffff",
-                      padding: "4px",
-                      borderRadius: "8px",
-                      border: "1px solid #bfdbfe",
-                      boxShadow: "0 2px 6px rgba(37, 99, 235, 0.08)",
-                      display: "inline-flex",
-                    }}
-                  >
-                    <img
-                      src={qrPortalImg}
-                      alt="QR Code Espace Patient"
-                      style={{
-                        width: "82px",
-                        height: "82px",
-                        display: "block",
-                      }}
-                    />
-                  </div>
-                  <span
-                    style={{
-                      fontSize: "10px",
-                      fontWeight: "700",
-                      color: "#1d4ed8",
-                      marginTop: "3px",
-                      letterSpacing: "0.2px",
-                    }}
-                  >
-                    Scanner pour accéder
+                <div className="d-flex justify-content-between mb-1">
+                  <span className="text-muted">Date :</span>
+                  <span className="text-dark font-w500">
+                    {previewInvoice.date} {previewInvoice.time ? `• ${previewInvoice.time}` : "• 10:30"}
                   </span>
                 </div>
+                <div className="d-flex justify-content-between align-items-center mt-2 pt-1" style={{ borderTop: "1px dotted #e2e8f0" }}>
+                  <span className="text-muted">Patient(e) :</span>
+                  <strong className="text-dark text-uppercase fs-13 font-w700">
+                    {cleanPatientName(previewInvoice.patientName)}
+                  </strong>
+                </div>
               </div>
 
-              )}
-
-              {/* Acte & Montant Simple (Pas de TTC, Pas de CNAS, Pas de Mutuelle) */}
-              <div className="card border mb-3 shadow-none">
-                <div className="card-body p-4 text-center bg-white rounded">
-                  {previewInvoice.actDescription && (
-                    <div className="mb-3 pb-3 border-bottom">
-                      <span className="text-muted fs-12 d-block text-uppercase">Acte médical / الفحص الطبي</span>
-                      <h6 className="text-dark font-w600 mb-0 mt-1 fs-15">{previewInvoice.actDescription}</h6>
-                    </div>
-                  )}
-
-                  <span className="text-muted fs-13 text-uppercase font-w600 d-block mb-1">
-                    Montant / المبلغ
-                  </span>
-                  <div className="display-5 font-w700 text-success my-2" style={{ letterSpacing: "1px" }}>
-                    {previewInvoice.amount ? previewInvoice.amount.toLocaleString("fr-DZ") : "0"} DA
-                  </div>
+              {/* 3. TYPE DE CONSULTATION */}
+              <div className="py-2 mb-2" style={{ borderBottom: "1px dashed #cbd5e1" }}>
+                <span className="text-muted d-block text-uppercase" style={{ fontSize: "11px", fontWeight: "600" }}>
+                  Type de consultation
+                </span>
+                <div className="text-dark font-w600 mt-1" style={{ fontSize: "13px" }}>
+                  {previewInvoice.actDescription || "Consultation Médicale"}
                 </div>
+              </div>
+
+              {/* 4. LE PRIX (MONTANT) */}
+              <div className="py-3 text-center mb-2" style={{ borderBottom: "1px dashed #cbd5e1", backgroundColor: "#f0fdf4", borderRadius: "6px" }}>
+                <span className="text-muted text-uppercase d-block" style={{ fontSize: "11px", fontWeight: "600", letterSpacing: "0.5px" }}>
+                  Total à payer
+                </span>
+                <div className="font-w800 mt-1" style={{ fontSize: "24px", color: "#059669", letterSpacing: "0.5px" }}>
+                  {previewInvoice.amount ? previewInvoice.amount.toLocaleString("fr-DZ") : "0"} DA
+                </div>
+              </div>
+
+              {/* 5. CODE QR & ACCÈS PORTAIL */}
+              <div className="pt-2 text-center">
+                <div
+                  style={{
+                    background: "#ffffff",
+                    padding: "6px",
+                    borderRadius: "8px",
+                    border: "1px solid #e2e8f0",
+                    display: "inline-block",
+                  }}
+                >
+                  <img
+                    src={qrPortalImg}
+                    alt="Code QR Portail Patient"
+                    style={{
+                      width: "88px",
+                      height: "88px",
+                      display: "block",
+                    }}
+                  />
+                </div>
+                <div className="mt-1 font-w600 text-primary" style={{ fontSize: "11px" }}>
+                  Scanner le Code QR
+                </div>
+                <div className="text-muted" style={{ fontSize: "10px" }}>
+                  Accès au portail patient en ligne
+                </div>
+
+                {getPatientPassword(previewInvoice) && (
+                  <div className="mt-2 p-1 px-2 rounded bg-light d-inline-block border" style={{ fontSize: "11px" }}>
+                    <span className="text-muted">Code d'accès : </span>
+                    <strong className="text-dark font-monospace">{getPatientPassword(previewInvoice)}</strong>
+                  </div>
+                )}
+              </div>
+
+              {/* PIED DE TICKET */}
+              <div className="text-center mt-3 pt-2 text-muted" style={{ borderTop: "1px dashed #cbd5e1", fontSize: "10px" }}>
+                Merci pour votre confiance • Bon rétablissement
               </div>
             </div>
           )}
         </div>
-        <div className="modal-footer">
-          <Button variant="secondary" onClick={() => setPreviewInvoice(null)}>
+        <div className="modal-footer py-2 px-3">
+          <Button variant="secondary" size="sm" onClick={() => setPreviewInvoice(null)}>
             Fermer
           </Button>
-          <Button variant="primary" onClick={() => window.print()}>
-            <i className="flaticon-381-print me-1"></i> Imprimer la facture
+          <Button variant="primary" size="sm" onClick={() => window.print()}>
+            <i className="flaticon-381-print me-1"></i> Imprimer Ticket 80mm
           </Button>
         </div>
       </Modal>

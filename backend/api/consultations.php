@@ -455,11 +455,15 @@ function handleCreateConsultation($db) {
                 $cashRef = sprintf("REC-%s-%04d", str_replace('-', '', $date), $consultationId);
                 $cashNotes = ($reason ?: "Consultation médicale") . " — Réf: " . $consultNumber;
 
+                $maxCashStmt = $db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM cash_entries WHERE id > 0");
+                $nextCashId = intval($maxCashStmt->fetchColumn() ?: 1);
+
                 $cashSql = "INSERT INTO cash_entries 
-                                (type, reference, party_name, party_phone, category, amount, entry_date, payment_method, notes, operator)
+                                (id, type, reference, party_name, party_phone, category, amount, entry_date, payment_method, notes, operator)
                             VALUES 
-                                ('RECETTE', :ref, :pname, :pphone, :cat, :amt, :edate, 'Espèces', :notes, 'Dr N. BELBACHIR OULD HENNIA')";
+                                (:id, 'RECETTE', :ref, :pname, :pphone, :cat, :amt, :edate, 'Espèces', :notes, 'Dr N. BELBACHIR OULD HENNIA')";
                 $db->prepare($cashSql)->execute([
+                    ':id' => $nextCashId,
                     ':ref' => $cashRef,
                     ':pname' => $partyName,
                     ':pphone' => $partyPhone,
@@ -470,11 +474,15 @@ function handleCreateConsultation($db) {
                 ]);
             } catch (Exception $e) {}
 
+            $maxInvStmt = $db->query("SELECT COALESCE(MAX(id), 0) + 1 FROM invoices WHERE id > 0");
+            $nextInvId = intval($maxInvStmt->fetchColumn() ?: 1);
+
             $invSql = "INSERT INTO invoices 
-                        (invoice_number, patient_id, patient_name, consultation_id, invoice_date, act_description, amount, covered_amo, covered_amc, patient_remaining, payment_method, status)
+                        (id, invoice_number, patient_id, patient_name, consultation_id, invoice_date, act_description, amount, covered_amo, covered_amc, patient_remaining, payment_method, status)
                        VALUES 
-                        (:invNum, :pid, :pname, :cid, :idate, :actDesc, :amt, 0.00, 0.00, :rem, 'Espèces', 'Payée')";
+                        (:id, :invNum, :pid, :pname, :cid, :idate, :actDesc, :amt, 0.00, 0.00, :rem, 'Espèces', 'Payée')";
             $db->prepare($invSql)->execute([
+                ':id' => $nextInvId,
                 ':invNum' => $invNumber,
                 ':pid' => $patientId,
                 ':pname' => $partyName,

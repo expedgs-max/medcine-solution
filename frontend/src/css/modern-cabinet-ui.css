@@ -250,3 +250,9 @@ select.form-select-sm {
   border-color: #1e60d5;
   background-color: #eef4ff !important;
 }
+
+/* Masquer le fil d'ariane (breadcrumbs / page-titles) sur tout le panneau d'administration */
+.page-titles,
+.row.page-titles {
+  display: none !important;
+}

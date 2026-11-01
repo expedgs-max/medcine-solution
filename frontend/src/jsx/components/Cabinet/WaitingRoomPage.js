@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Modal, Button } from "react-bootstrap";
+import CreatableSelect from "react-select/creatable";
 import Swal from "sweetalert2";
 import PageTitle from "../../layouts/PageTitle";
 import ApiService from "../../../services/ApiService";
@@ -47,11 +48,88 @@ const WaitingRoomPage = () => {
   });
   const [patients, setPatients] = useState([]);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [patientInputSearch, setPatientInputSearch] = useState("");
   const [newArrival, setNewArrival] = useState({
     patientId: "",
+    patientName: "",
+    isNewPatient: false,
     appointmentTime: "11:30",
     reason: "Consultation générale",
   });
+
+  const patientOptions = patients.map((p) => ({
+    value: p.id,
+    label: `${(p.firstName || "")} ${(p.lastName || "").toUpperCase()} (${p.fileNumber || ""})`,
+    patient: p,
+  }));
+
+  const selectedPatientOption = newArrival.patientId
+    ? patientOptions.find((opt) => String(opt.value) === String(newArrival.patientId)) ||
+      (newArrival.patientName
+        ? { value: newArrival.patientId, label: newArrival.patientName }
+        : null)
+    : newArrival.patientName
+    ? { value: "new_patient", label: newArrival.patientName }
+    : null;
+
+  const patientSelectStyles = {
+    control: (base, state) => ({
+      ...base,
+      minHeight: "42px",
+      borderRadius: "0.5rem",
+      borderColor: state.isFocused ? "#1e60d5" : "#e4e7ea",
+      boxShadow: state.isFocused ? "0 0 0 0.2rem rgba(30, 96, 213, 0.15)" : "none",
+      "&:hover": {
+        borderColor: "#1e60d5",
+      },
+    }),
+    option: (base, state) => ({
+      ...base,
+      backgroundColor: state.isSelected
+        ? "#1e60d5"
+        : state.isFocused
+        ? "rgba(30, 96, 213, 0.08)"
+        : "transparent",
+      color: state.isSelected ? "#ffffff" : "#333333",
+      fontSize: "13px",
+      cursor: "pointer",
+    }),
+    singleValue: (base) => ({
+      ...base,
+      fontSize: "13.5px",
+      fontWeight: "500",
+      color: "#333333",
+    }),
+    placeholder: (base) => ({
+      ...base,
+      fontSize: "13px",
+      color: "#9ca3af",
+    }),
+    menuPortal: (base) => ({ ...base, zIndex: 99999 }),
+    menu: (base) => ({
+      ...base,
+      zIndex: 9999,
+      borderRadius: "0.5rem",
+      boxShadow: "0 10px 25px rgba(0, 0, 0, 0.15)",
+    }),
+  };
+  const [activeCalledId, setActiveCalledId] = useState(() => {
+    try {
+      const saved = localStorage.getItem("current_called_patient");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.patientId || parsed.id || null;
+      }
+    } catch (e) {}
+    return null;
+  });
+
+  const getTicketNum = (p) => {
+    if (p?.ticketNumber && !isNaN(Number(p.ticketNumber))) {
+      return Number(p.ticketNumber);
+    }
+    return calculateTicketNumber(p?.appointmentTime);
+  };
 
   const broadcastWaitingList = (list) => {
     try {
@@ -132,9 +210,26 @@ const WaitingRoomPage = () => {
   }, []);
 
   const handleCallPatient = (patient) => {
-    const updated = waitingList.map((p) =>
-      p.id === patient.id ? { ...p, status: "Appelé" } : p
+    setActiveCalledId(patient.id);
+
+    // Retirer automatiquement le patient précédent de la liste d'attente (mis à "Terminé")
+    const previousCalled = waitingList.filter(
+      (p) => p.id !== patient.id && (p.status === "Appelé" || p.status === "En consultation" || p.id === activeCalledId)
     );
+    for (const prev of previousCalled) {
+      ApiService.updateWaitingStatus(prev.id, "Terminé").catch((e) =>
+        console.warn("Erreur mise à jour statut Terminé :", e)
+      );
+    }
+
+    // Mettre à jour la liste locale : le patient précédent est retiré, le nouveau passe à "Appelé"
+    const updated = waitingList
+      .filter(
+        (p) => !(p.id !== patient.id && (p.status === "Appelé" || p.status === "En consultation" || p.id === activeCalledId))
+      )
+      .map((p) =>
+        p.id === patient.id ? { ...p, status: "Appelé" } : p
+      );
     setWaitingList(updated);
     broadcastWaitingList(updated);
 
@@ -171,6 +266,7 @@ const WaitingRoomPage = () => {
   };
 
   const handleStartConsultation = (patient) => {
+    setActiveCalledId(patient.id);
     const updated = waitingList.map((p) =>
       p.id === patient.id ? { ...p, status: "En consultation" } : p
     );
@@ -224,13 +320,79 @@ const WaitingRoomPage = () => {
 
   const handleRegisterArrival = async (e) => {
     e.preventDefault();
-    const pat =
-      patients.find((p) => p.id === parseInt(newArrival.patientId)) ||
-      patients[0];
+
+    let typedName = (newArrival.patientName || "").trim();
+    if (!typedName && patientInputSearch?.trim()) {
+      typedName = patientInputSearch.trim();
+    }
+
+    let pat = null;
+    let createdNewDossier = false;
+
+    if (newArrival.patientId && !String(newArrival.patientId).startsWith("new_")) {
+      pat = patients.find((p) => p.id === parseInt(newArrival.patientId));
+    }
+
+    // Si le patient n'existe pas ou un nouveau nom a été saisi -> CRÉER UN NOUVEAU DOSSIER MÉDICAL DANS MYSQL !
+    if (!pat || newArrival.isNewPatient || String(newArrival.patientId).startsWith("new_")) {
+      const nameToUse = typedName || newArrival.patientName || "Nouveau Patient";
+      if (!nameToUse.trim()) {
+        Swal.fire("Attention", "Veuillez sélectionner un patient ou écrire son nom pour créer son dossier médical.", "warning");
+        return;
+      }
+      const parts = nameToUse.split(/\s+/);
+      const lastName = parts[0] ? parts[0].toUpperCase() : "PATIENT";
+      const firstName = parts.length > 1 ? parts.slice(1).join(" ") : nameToUse;
+
+      try {
+        const createRes = await ApiService.createPatient({
+          firstName: firstName,
+          lastName: lastName,
+          gender: "Féminin",
+          status: "Actif",
+          bloodGroup: "O+",
+          allergies: ["Aucune allergie connue"],
+        });
+
+        const createdData = createRes?.data || createRes;
+        const newFileNum =
+          createdData?.fileNumber ||
+          `DOS-${new Date().getFullYear()}-${String(patients.length + 1).padStart(3, "0")}`;
+
+        pat = {
+          id: createdData?.id || Date.now(),
+          fileNumber: newFileNum,
+          firstName: firstName,
+          lastName: lastName,
+          ddr: "-",
+          terme: "-",
+          status: "Actif",
+        };
+
+        setPatients((prev) => [pat, ...prev]);
+        createdNewDossier = true;
+      } catch (err) {
+        console.warn("Erreur création dossier médical :", err);
+        const newFileNum = `DOS-${new Date().getFullYear()}-${String(patients.length + 1).padStart(3, "0")}`;
+        pat = {
+          id: Date.now(),
+          fileNumber: newFileNum,
+          firstName: firstName,
+          lastName: lastName,
+          ddr: "-",
+          terme: "-",
+          status: "Actif",
+        };
+        setPatients((prev) => [pat, ...prev]);
+        createdNewDossier = true;
+      }
+    }
+
     if (!pat) {
-      Swal.fire("Attention", "Veuillez d'abord enregistrer un patient dans le répertoire.", "warning");
+      Swal.fire("Attention", "Impossible de valider l'arrivée. Veuillez renseigner le nom du patient.", "warning");
       return;
     }
+
     const now = new Date();
     const arrivalTime = `${String(now.getHours()).padStart(2, "0")}:${String(
       now.getMinutes()
@@ -249,7 +411,7 @@ const WaitingRoomPage = () => {
       const created = {
         id: newId,
         patientId: pat.id,
-        patientName: `${pat.firstName} ${pat.lastName}`,
+        patientName: `${pat.firstName || ""} ${pat.lastName || ""}`.trim() || pat.name || "Patient",
         fileNumber: pat.fileNumber || `DOS-${pat.id}`,
         appointmentTime: newArrival.appointmentTime,
         arrivalTime: arrivalTime,
@@ -262,13 +424,32 @@ const WaitingRoomPage = () => {
       setWaitingList(updated);
       broadcastWaitingList(updated);
       setShowAddModal(false);
-      Swal.fire({
-        icon: "success",
-        title: "Arrivée enregistrée",
-        text: `${created.patientName} a été ajouté(e) en salle d'attente.`,
-        timer: 1500,
-        showConfirmButton: false,
+      setPatientInputSearch("");
+      setNewArrival({
+        patientId: "",
+        patientName: "",
+        isNewPatient: false,
+        appointmentTime: "11:30",
+        reason: "Consultation générale",
       });
+
+      if (createdNewDossier) {
+        Swal.fire({
+          icon: "success",
+          title: "Dossier créé & Arrivée enregistrée !",
+          html: `Le dossier médical <strong>${created.fileNumber}</strong> a été créé dans la base de données pour <strong>${created.patientName}</strong> et son arrivée a été validée.`,
+          timer: 3000,
+          showConfirmButton: false,
+        });
+      } else {
+        Swal.fire({
+          icon: "success",
+          title: "Arrivée enregistrée",
+          text: `${created.patientName} a été ajouté(e) en salle d'attente.`,
+          timer: 1500,
+          showConfirmButton: false,
+        });
+      }
     } catch (err) {
       console.warn("Erreur enregistrement arrivée :", err);
     }
@@ -276,6 +457,59 @@ const WaitingRoomPage = () => {
 
   const waitingCount = waitingList.filter((p) => p.status === "En attente").length;
   const inConsultCount = waitingList.filter((p) => p.status === "En consultation").length;
+
+  // Patient actuellement en consultation ou appelé
+  const currentInConsultation =
+    (activeCalledId && waitingList.find((p) => p.id === activeCalledId || p.patientId === activeCalledId)) ||
+    waitingList.find((p) => p.status === "En consultation") ||
+    waitingList.find((p) => p.status === "Appelé") ||
+    null;
+
+  // Patients qui sont actuellement en attente
+  const waitingPatients = waitingList.filter((p) => p.status === "En attente");
+
+  // Calcul automatique du patient suivant selon l'ordre logique des numéros de tickets
+  const getNextPatient = () => {
+    if (waitingPatients.length === 0) return null;
+
+    // Trier les patients en attente par numéro de ticket croissant (#1, #2, #3, ...)
+    const sortedWaiting = [...waitingPatients].sort(
+      (a, b) => getTicketNum(a) - getTicketNum(b)
+    );
+
+    if (currentInConsultation) {
+      const currentTicket = getTicketNum(currentInConsultation);
+      // Chercher le premier patient en attente dont le ticket est strictement supérieur à celui en cours
+      const nextAfterCurrent = sortedWaiting.find(
+        (p) => getTicketNum(p) > currentTicket
+      );
+      // Si trouvé, c'est le patient suivant
+      if (nextAfterCurrent) return nextAfterCurrent;
+
+      // Si aucun ticket n'est supérieur, le patient actuel est le dernier de la journée !
+      return null;
+    }
+
+    // Si aucun patient n'est encore en consultation, commencer par le premier ticket en attente
+    return sortedWaiting[0];
+  };
+
+  const nextPatientToCall = getNextPatient();
+
+  const handleCallNextPatient = () => {
+    const nextPatient = getNextPatient();
+    if (!nextPatient) {
+      Swal.fire({
+        icon: "info",
+        title: "Fin des consultations",
+        text: "C'était le dernier patient de la journée. Il n'y a plus de patients dans la salle d'attente.",
+        confirmButtonColor: "#1e60d5",
+        confirmButtonText: "D'accord",
+      });
+      return;
+    }
+    handleCallPatient(nextPatient);
+  };
 
   return (
     <>
@@ -309,13 +543,95 @@ const WaitingRoomPage = () => {
 
       {/* Tableau de la Salle d'attente en temps réel */}
       <div className="card">
-        <div className="card-header border-0 pb-0">
-          <div>
-            <h4 className="card-title">Patients actuellement au cabinet</h4>
+        <div className="card-header border-0 pb-0 row align-items-center g-3">
+          {/* Titre à gauche */}
+          <div className="col-12 col-md-4 col-xl-4 text-start">
+            <h4 className="card-title mb-1">Patients actuellement au cabinet</h4>
             <p className="text-muted fs-13 mb-0">
               Mise à jour en temps réel pour le cabinet et le secrétariat
             </p>
           </div>
+
+          {/* Carré : Patient en consultation & Flèche > centrés au milieu de l'écran */}
+          <div className="col-12 col-md-8 col-xl-4 d-flex justify-content-center justify-content-md-end justify-content-xl-center">
+            <div className="d-flex align-items-center gap-2">
+              <div
+                className="d-flex align-items-center px-3 py-2 rounded-3 border"
+                style={{
+                  backgroundColor: currentInConsultation ? "#f0fdf4" : "#f8fafc",
+                  borderColor: currentInConsultation ? "#86efac" : "#e2e8f0",
+                  minWidth: "240px",
+                  boxShadow: "0 2px 4px rgba(0,0,0,0.04)",
+                }}
+              >
+                {currentInConsultation ? (
+                  <>
+                    <span
+                      className="badge bg-success text-white font-w800 me-2"
+                      style={{
+                        fontSize: "13px",
+                        padding: "6px 10px",
+                        borderRadius: "8px",
+                        letterSpacing: "0.5px",
+                      }}
+                    >
+                      #{getTicketNum(currentInConsultation)}
+                    </span>
+                    <div className="text-truncate" style={{ maxWidth: "160px" }}>
+                      <div
+                        style={{
+                          fontSize: "10px",
+                          fontWeight: "700",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                          color: "#15803d",
+                        }}
+                      >
+                        {currentInConsultation.status === "En consultation"
+                          ? "En consultation"
+                          : "Patient en cours"}
+                      </div>
+                      <strong className="text-dark fs-14 d-block text-truncate">
+                        {currentInConsultation.patientName}
+                      </strong>
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-muted fs-13 d-flex align-items-center gap-2 py-1">
+                    <i className="flaticon-381-user-9 opacity-50"></i>
+                    <span>Aucun patient en consultation</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Bouton Flèche > pour appeler directement le patient suivant selon le N° de ticket */}
+              <button
+                type="button"
+                className="btn btn-primary d-flex align-items-center justify-content-center shadow"
+                style={{
+                  width: "44px",
+                  height: "44px",
+                  borderRadius: "10px",
+                  backgroundColor: "#1e60d5",
+                  borderColor: "#1e60d5",
+                  fontSize: "16px",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease",
+                }}
+                onClick={handleCallNextPatient}
+                title={
+                  nextPatientToCall
+                    ? `Appeler le patient suivant : ${nextPatientToCall.patientName} (Ticket #${getTicketNum(nextPatientToCall)})`
+                    : "C'était le dernier patient de la journée (plus de patients en attente)"
+                }
+              >
+                <i className="fa fa-chevron-right text-white"></i>
+              </button>
+            </div>
+          </div>
+
+          {/* Espace droit pour équilibrer le centrage exact sur grand écran */}
+          <div className="d-none d-xl-block col-xl-4"></div>
         </div>
         <div className="card-body">
           <div className="table-responsive" style={{ overflowX: "hidden" }}>
@@ -450,20 +766,77 @@ const WaitingRoomPage = () => {
         <form onSubmit={handleRegisterArrival}>
           <div className="modal-body">
             <div className="mb-3">
-              <label className="form-label">Sélectionner le patient *</label>
-              <select
-                className="form-control"
-                value={newArrival.patientId}
-                onChange={(e) =>
-                  setNewArrival({ ...newArrival, patientId: e.target.value })
-                }
-              >
-                {patients.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {(p.firstName || "")} {(p.lastName || "").toUpperCase()} ({p.fileNumber || ""})
-                  </option>
-                ))}
-              </select>
+              <label className="form-label font-w600">
+                Patient(e) <span className="text-danger">*</span>
+              </label>
+              <CreatableSelect
+                isSearchable={true}
+                isClearable={true}
+                placeholder="Sélectionner ou saisir un nouveau patient..."
+                options={patientOptions}
+                value={selectedPatientOption}
+                styles={patientSelectStyles}
+                inputValue={patientInputSearch}
+                menuPortalTarget={document.body}
+                formatCreateLabel={(inputValue) => `+ Créer "${inputValue}" (Nouveau dossier médical)`}
+                onInputChange={(val, actionMeta) => {
+                  if (actionMeta.action === "input-change") {
+                    setPatientInputSearch(val);
+                  }
+                }}
+                onChange={(selected) => {
+                  if (!selected) {
+                    setNewArrival({
+                      ...newArrival,
+                      patientId: "",
+                      patientName: "",
+                      isNewPatient: false,
+                    });
+                    setPatientInputSearch("");
+                    return;
+                  }
+                  if (selected.patient) {
+                    setNewArrival({
+                      ...newArrival,
+                      patientId: selected.value,
+                      patientName: `${selected.patient.firstName || ""} ${selected.patient.lastName || ""}`.trim(),
+                      isNewPatient: false,
+                    });
+                    setPatientInputSearch("");
+                  } else {
+                    setNewArrival({
+                      ...newArrival,
+                      patientId: `new_${Date.now()}`,
+                      patientName: selected.label || selected.value,
+                      isNewPatient: true,
+                    });
+                    setPatientInputSearch("");
+                  }
+                }}
+                onCreateOption={(inputValue) => {
+                  const clean = inputValue.trim();
+                  if (!clean) return;
+                  setNewArrival({
+                    ...newArrival,
+                    patientId: `new_${Date.now()}`,
+                    patientName: clean,
+                    isNewPatient: true,
+                  });
+                  setPatientInputSearch(clean);
+                }}
+              />
+              {newArrival.isNewPatient || (patientInputSearch && !selectedPatientOption?.patient) ? (
+                <div className="mt-2 p-2 rounded" style={{ background: "#eff6ff", border: "1px solid #bfdbfe" }}>
+                  <small className="text-primary font-w600 d-flex align-items-center gap-1 fs-12">
+                    <i className="fa fa-folder-plus"></i>
+                    Nouveau patient : un dossier médical officiel sera automatiquement créé dans la base de données.
+                  </small>
+                </div>
+              ) : (
+                <small className="text-muted mt-1 d-block fs-11">
+                  Recherchez un patient existant ou écrivez son nom pour créer son dossier médical automatiquement.
+                </small>
+              )}
             </div>
             <div className="mb-3">
               <label className="form-label">Heure du rendez-vous prévu</label>

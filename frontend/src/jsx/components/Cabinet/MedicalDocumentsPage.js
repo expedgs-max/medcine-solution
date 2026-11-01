@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { Modal, Button, Badge } from "react-bootstrap";
 import Swal from "sweetalert2";
@@ -19,6 +19,8 @@ const MedicalDocumentsPage = () => {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [filePreview, setFilePreview] = useState(null);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
+  const fileInputRef = useRef(null);
 
   const [newDoc, setNewDoc] = useState({
     patientId: "",
@@ -63,23 +65,34 @@ const MedicalDocumentsPage = () => {
     fetchData();
   }, []);
 
+  const processFile = (file) => {
+    if (!file) return;
+    setSelectedFile(file);
+    if (!newDoc.title) {
+      const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+      setNewDoc((prev) => ({ ...prev, title: cleanName }));
+    }
+    const ext = file.name.split(".").pop()?.toUpperCase() || "";
+    if (["JPG", "JPEG", "PNG", "WEBP", "DICOM"].includes(ext)) {
+      setNewDoc((prev) => ({ ...prev, category: "Imagerie & Radiologie" }));
+    } else if (["PDF", "DOC", "DOCX"].includes(ext)) {
+      setNewDoc((prev) => ({ ...prev, category: "Comptes rendus spécialistes" }));
+    }
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setFilePreview(event.target.result);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setFilePreview(null);
+    }
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (file) {
-      setSelectedFile(file);
-      if (!newDoc.title) {
-        const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
-        setNewDoc((prev) => ({ ...prev, title: cleanName }));
-      }
-      if (file.type.startsWith("image/")) {
-        const reader = new FileReader();
-        reader.onload = (event) => {
-          setFilePreview(event.target.result);
-        };
-        reader.readAsDataURL(file);
-      } else {
-        setFilePreview(null);
-      }
+      processFile(file);
     }
   };
 
@@ -520,31 +533,70 @@ const MedicalDocumentsPage = () => {
             </div>
 
             <div className="mb-3">
-              <label className="form-label font-w600">Photo ou Fichier depuis l'appareil</label>
-              <input
-                type="file"
-                className="form-control"
-                accept="image/*,.pdf,.doc,.docx"
-                onChange={handleFileChange}
-              />
-              {selectedFile && (
-                <div className="mt-2 d-flex align-items-center gap-2 p-2 bg-light rounded">
-                  {filePreview ? (
-                    <img
-                      src={filePreview}
-                      alt="Aperçu"
-                      style={{ width: "40px", height: "40px", objectFit: "cover", borderRadius: "6px" }}
-                    />
-                  ) : (
-                    <i className="fa fa-file-pdf fs-24 text-danger"></i>
-                  )}
-                  <div>
-                    <strong className="d-block fs-13 text-dark">{selectedFile.name}</strong>
-                    <small className="text-muted">{(selectedFile.size / 1024).toFixed(1)} Ko</small>
+              <label className="form-label font-w600">Photo ou Document médical</label>
+              <div
+                style={{
+                  border: selectedFile ? "2px solid #86efac" : isDraggingFile ? "2px dashed #1e60d5" : "2px dashed #cbd5e1",
+                  borderRadius: "10px",
+                  padding: "20px 15px",
+                  textAlign: "center",
+                  background: isDraggingFile ? "#eff6ff" : selectedFile ? "#f0fdf4" : "#f8fafc",
+                  cursor: "pointer",
+                  transition: "all 0.2s ease",
+                }}
+                onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!isDraggingFile) setIsDraggingFile(true);
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingFile(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setIsDraggingFile(false);
+                  if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                    processFile(e.dataTransfer.files[0]);
+                  }
+                }}
+              >
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="d-none"
+                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+                  onChange={handleFileChange}
+                />
+                {selectedFile ? (
+                  <div className="d-flex align-items-center justify-content-center gap-3">
+                    {filePreview ? (
+                      <img
+                        src={filePreview}
+                        alt="Aperçu"
+                        style={{ width: "45px", height: "45px", objectFit: "cover", borderRadius: "6px" }}
+                      />
+                    ) : (
+                      <i className="fa fa-file-pdf fs-28 text-danger"></i>
+                    )}
+                    <div className="text-start">
+                      <strong className="d-block fs-13 text-dark">{selectedFile.name}</strong>
+                      <small className="text-muted">{(selectedFile.size / 1024).toFixed(1)} Ko</small>
+                    </div>
                   </div>
-                </div>
-              )}
-              <small className="text-muted">Photos (JPG, PNG, WebP), Scanners, Radios, PDF (max 25 Mo).</small>
+                ) : (
+                  <div>
+                    <i className="fa fa-cloud-upload-alt fs-24 text-primary mb-2 d-block"></i>
+                    <p className="font-w600 text-dark mb-1 fs-13">
+                      Glissez-déposez un document ici ou cliquez pour sélectionner
+                    </p>
+                    <small className="text-muted">Photos (JPG, PNG, WebP), Scanners, Radios, PDF (max 25 Mo)</small>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
           <div className="modal-footer">

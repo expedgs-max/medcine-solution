@@ -268,8 +268,12 @@ const AppointmentsPage = () => {
     );
 
     // Synchronisation MySQL
+    const cleanDropId = typeof info.event.id === "string" && info.event.id.startsWith("RDV-")
+      ? parseInt(info.event.id.replace("RDV-", ""), 10)
+      : parseInt(info.event.id, 10) || info.event.id;
+
     ApiService.updateAppointment({
-      id: info.event.id,
+      id: cleanDropId,
       date: newDate,
       time: newTime,
       duration: newDuration,
@@ -301,8 +305,12 @@ const AppointmentsPage = () => {
     );
 
     // Synchronisation MySQL
+    const cleanResizeId = typeof info.event.id === "string" && info.event.id.startsWith("RDV-")
+      ? parseInt(info.event.id.replace("RDV-", ""), 10)
+      : parseInt(info.event.id, 10) || info.event.id;
+
     ApiService.updateAppointment({
-      id: info.event.id,
+      id: cleanResizeId,
       duration: newDuration,
     }).catch((err) => console.warn("Erreur redimensionnement rdv MySQL :", err));
 
@@ -426,8 +434,8 @@ const AppointmentsPage = () => {
     }
   };
 
-  const handleSaveRdv = (e) => {
-    e.preventDefault();
+  const handleSaveRdv = async (e) => {
+    if (e && e.preventDefault) e.preventDefault();
     const closedHit = getClosedDateMatch(formRdv.date);
     if (closedHit) {
       Swal.fire({
@@ -442,7 +450,6 @@ const AppointmentsPage = () => {
       });
       return;
     }
-    e.preventDefault();
 
     // Règle métier : Prévention des chevauchements réels de rendez-vous pour le praticien
     const toMinutes = (timeStr) => {
@@ -501,8 +508,12 @@ const AppointmentsPage = () => {
     }
 
     if (editId) {
-      setAppointments(
-        appointments.map((a) =>
+      const cleanEditId = typeof editId === "string" && editId.startsWith("RDV-")
+        ? parseInt(editId.replace("RDV-", ""), 10)
+        : parseInt(editId, 10) || editId;
+
+      setAppointments((prev) =>
+        prev.map((a) =>
           a.id === editId
             ? {
                 ...a,
@@ -523,24 +534,28 @@ const AppointmentsPage = () => {
       );
 
       // Synchronisation MySQL
-      ApiService.updateAppointment({
-        id: editId,
-        patientId: pId,
-        patientName: pFullName,
-        phone: pPhone,
-        date: formRdv.date,
-        time: formRdv.time,
-        duration: formRdv.duration,
-        reason: formRdv.reason,
-        consultationType: formRdv.consultationType || "Consultation générale",
-        price: formRdv.price || 2500,
-        status: formRdv.status,
-        notes: formRdv.notes,
-      }).catch((err) => console.warn("Erreur mise à jour rendez-vous MySQL :", err));
+      try {
+        await ApiService.updateAppointment({
+          id: cleanEditId,
+          patientId: pId,
+          patientName: pFullName,
+          phone: pPhone,
+          date: formRdv.date,
+          time: formRdv.time,
+          duration: formRdv.duration,
+          reason: formRdv.reason,
+          consultationType: formRdv.consultationType || "Consultation générale",
+          price: formRdv.price || 2500,
+          status: formRdv.status,
+          notes: formRdv.notes,
+        });
+      } catch (err) {
+        console.warn("Erreur mise à jour rendez-vous MySQL :", err);
+      }
 
       if (formRdv.status === "Arrivé") {
         syncArrivalToWaitingRoom({
-          appointmentId: editId,
+          appointmentId: cleanEditId,
           patientId: pId,
           patientName: pFullName,
           phone: pPhone,
@@ -564,8 +579,32 @@ const AppointmentsPage = () => {
         });
       }
     } else {
+      let createdId = Date.now();
+      try {
+        const res = await ApiService.createAppointment({
+          patientId: pId,
+          patientName: pFullName,
+          phone: pPhone,
+          date: formRdv.date,
+          time: formRdv.time,
+          duration: formRdv.duration,
+          reason: formRdv.reason,
+          consultationType: formRdv.consultationType || "Consultation générale",
+          price: formRdv.price || 2500,
+          status: formRdv.status,
+          notes: formRdv.notes,
+        });
+        if (res && res.data && res.data.id) {
+          createdId = res.data.id;
+        } else if (res && res.id) {
+          createdId = res.id;
+        }
+      } catch (err) {
+        console.warn("Erreur création rendez-vous MySQL :", err);
+      }
+
       const newAppt = {
-        id: appointments.length + 1,
+        id: createdId,
         patientId: pId,
         patientName: pFullName,
         phone: pPhone,
@@ -578,26 +617,11 @@ const AppointmentsPage = () => {
         status: formRdv.status,
         notes: formRdv.notes,
       };
-      setAppointments([...appointments, newAppt]);
-
-      // Synchronisation MySQL
-      ApiService.createAppointment({
-        patientId: pId,
-        patientName: pFullName,
-        phone: pPhone,
-        date: formRdv.date,
-        time: formRdv.time,
-        duration: formRdv.duration,
-        reason: formRdv.reason,
-        consultationType: formRdv.consultationType || "Consultation générale",
-        price: formRdv.price || 2500,
-        status: formRdv.status,
-        notes: formRdv.notes,
-      }).catch((err) => console.warn("Erreur création rendez-vous MySQL :", err));
+      setAppointments((prev) => [...prev, newAppt]);
 
       if (formRdv.status === "Arrivé") {
         syncArrivalToWaitingRoom({
-          appointmentId: newAppt.id,
+          appointmentId: createdId,
           patientId: pId,
           patientName: pFullName,
           phone: pPhone,
@@ -626,16 +650,21 @@ const AppointmentsPage = () => {
   };
 
   const handleMarkArrived = async (rdv) => {
+    if (!rdv) return;
+    const cleanId = typeof rdv.id === "string" && rdv.id.startsWith("RDV-")
+      ? parseInt(rdv.id.replace("RDV-", ""), 10)
+      : parseInt(rdv.id, 10) || rdv.id;
+
     setAppointments((prev) =>
       prev.map((a) => (a.id === rdv.id ? { ...a, status: "Arrivé" } : a))
     );
     try {
-      await ApiService.updateAppointment({ id: rdv.id, status: "Arrivé" });
+      await ApiService.updateAppointment({ id: cleanId, status: "Arrivé" });
     } catch (err) {
       console.warn("Erreur mise à jour statut Arrivé :", err);
     }
     syncArrivalToWaitingRoom({
-      appointmentId: rdv.id,
+      appointmentId: cleanId,
       patientId: rdv.patientId || null,
       patientName: rdv.patientName || "Patient",
       phone: rdv.phone || "",
@@ -657,11 +686,16 @@ const AppointmentsPage = () => {
       e.preventDefault();
       e.stopPropagation();
     }
+    if (!rdv) return;
+    const cleanId = typeof rdv.id === "string" && rdv.id.startsWith("RDV-")
+      ? parseInt(rdv.id.replace("RDV-", ""), 10)
+      : parseInt(rdv.id, 10) || rdv.id;
+
     try {
       setAppointments((prev) =>
         prev.map((a) => (a.id === rdv.id ? { ...a, status: "Confirmé" } : a))
       );
-      await ApiService.updateAppointment({ id: rdv.id, status: "Confirmé" });
+      await ApiService.updateAppointment({ id: cleanId, status: "Confirmé" });
       Swal.fire({
         icon: "success",
         title: "Rendez-vous accepté !",
@@ -1452,6 +1486,17 @@ const AppointmentsPage = () => {
                 border-top: 1px dashed #e2e8f0 !important;
               }
 
+              /* Petit icone plus gris dans les creneaux vides de l agenda */
+              .modern-calendar-wrapper .fc-timegrid-col:not(.fc-timegrid-axis) .fc-timegrid-col-frame {
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='92' viewBox='0 0 24 92'%3E%3Cg stroke='%2394a3b8' stroke-width='1.8' stroke-linecap='round'%3E%3Cline x1='12' y1='68' x2='12' y2='80'/%3E%3Cline x1='6' y1='74' x2='18' y2='74'/%3E%3C/g%3E%3C/svg%3E");
+                background-repeat: repeat-y;
+                background-position: right 14px top 0px;
+                background-size: 24px 92px;
+              }
+              .modern-calendar-wrapper .fc-timegrid-axis .fc-timegrid-col-frame {
+                background-image: none !important;
+              }
+
               /* Appointment Card Container with Drag & Drop styling */
               .modern-calendar-wrapper .fc-timegrid-event-harness {
                 padding: 3px 5px !important;
@@ -1675,6 +1720,17 @@ const AppointmentsPage = () => {
                   white-space: nowrap !important;
                   opacity: 1 !important;
                   visibility: visible !important;
+                }
+
+                /* Petit icone plus gris dans les creneaux vides (mobile 60px) */
+                .modern-calendar-wrapper .fc-timegrid-col:not(.fc-timegrid-axis) .fc-timegrid-col-frame {
+                  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='60' viewBox='0 0 20 60'%3E%3Cg stroke='%2394a3b8' stroke-width='1.8' stroke-linecap='round'%3E%3Cline x1='10' y1='44' x2='10' y2='54'/%3E%3Cline x1='5' y1='49' x2='15' y2='49'/%3E%3C/g%3E%3C/svg%3E");
+                  background-repeat: repeat-y;
+                  background-position: right 6px top 0px;
+                  background-size: 20px 60px;
+                }
+                .modern-calendar-wrapper .fc-timegrid-axis .fc-timegrid-col-frame {
+                  background-image: none !important;
                 }
 
                 /* En-tête des jours empilé verticalement pour éviter tout chevauchement */
@@ -2109,6 +2165,8 @@ const AppointmentsPage = () => {
         onHide={() => setShowApprovalModal(false)}
         size="lg"
         centered
+        enforceFocus={false}
+        restoreFocus={false}
       >
         <Modal.Header closeButton style={{ borderBottom: "1px solid #f1f5f9", padding: "16px 20px" }}>
           <div className="d-flex align-items-center gap-2">

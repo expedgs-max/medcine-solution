@@ -20,7 +20,7 @@ if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'OPTIONS
 
 class Database {
     private $host = "127.0.0.1";
-    private $port = "3307";
+    private $port = "3306";
     private $db_name = "medcine_solution_db";
     private $username = "root";
     private $password = "";
@@ -28,7 +28,7 @@ class Database {
 
     public function getConnection() {
         $this->conn = null;
-        $portsToTry = array_unique([getenv('DB_PORT') ?: "3307", "3307", "3306"]);
+        $portsToTry = array_unique([getenv('DB_PORT') ?: "3306", "3306", "3307"]);
         $lastException = null;
 
         foreach ($portsToTry as $port) {
@@ -70,7 +70,12 @@ function sendResponse($status, $data = null, $message = "", $code = 200) {
 // Helper pour lire le corps JSON d'une requête POST/PUT
 function getRequestBody() {
     $raw = file_get_contents("php://input");
-    if (empty($raw)) return [];
-    $decoded = json_decode($raw, true);
-    return is_array($decoded) ? $decoded : [];
+    if (!empty($raw)) {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) return $decoded;
+        parse_str($raw, $parsed);
+        if (is_array($parsed) && !empty($parsed)) return $parsed;
+    }
+    if (!empty($_POST)) return $_POST;
+    return [];
 }

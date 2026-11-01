@@ -1,6 +1,166 @@
-import React, { useState, useEffect } from "react";
-import { Button } from "react-bootstrap";
+import React, { useState, useEffect, useRef } from "react";
+import { Button, Modal } from "react-bootstrap";
+import CreatableSelect from "react-select/creatable";
+import Swal from "sweetalert2";
 import WheelDatePicker from "./WheelDatePicker";
+import ApiService from "../../../services/ApiService";
+import { initialMedications } from "../../../services/CabinetData";
+
+/**
+ * Composant de recherche et sélection de médicament en temps réel (identique à admin/ordonnances)
+ */
+const MedicationSearchInput = ({
+  value = "",
+  onChange,
+  medications = [],
+  onSelectMedication,
+  placeholder = "Ex: PARACÉTAMOL 1000 mg, AMOXICILLINE...",
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const query = (value || "").trim().toLowerCase();
+
+  const filtered = query
+    ? medications
+        .filter((m) => (m.name || "").toLowerCase().includes(query))
+        .slice(0, 8)
+    : medications.slice(0, 8);
+
+  const exactMatch = medications.some(
+    (m) => (m.name || "").toLowerCase().trim() === query
+  );
+
+  return (
+    <div ref={containerRef} className="position-relative w-100">
+      <div className="input-group input-group-sm">
+        <span
+          className="input-group-text bg-white border-end-0 text-muted"
+          style={{
+            borderRadius: "0.6rem 0 0 0.6rem",
+            borderColor: "#e2e8f0",
+          }}
+        >
+          <i className="fa fa-pills text-primary opacity-75"></i>
+        </span>
+        <input
+          type="text"
+          className="form-control form-control-sm border-start-0"
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          required
+          autoComplete="off"
+          style={{
+            borderRadius: "0 0.6rem 0.6rem 0",
+            borderColor: "#e2e8f0",
+            height: "44px",
+            fontSize: "13px",
+            fontWeight: "500",
+          }}
+        />
+      </div>
+
+      {isOpen && filtered.length > 0 && (
+        <div
+          className="shadow-lg border rounded-3 position-absolute bg-white w-100"
+          style={{
+            top: "100%",
+            left: 0,
+            marginTop: "4px",
+            zIndex: 99999,
+            maxHeight: "230px",
+            overflowY: "auto",
+            borderColor: "#e2e8f0",
+          }}
+        >
+          <div className="py-1">
+            {filtered.map((m, idx) => (
+              <div
+                key={m.id || `${m.name}-${idx}`}
+                className="px-3 py-2 border-bottom d-flex justify-content-between align-items-center"
+                style={{
+                  cursor: "pointer",
+                  transition: "background 0.15s ease",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.backgroundColor = "#f0f7ff")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.backgroundColor = "transparent")
+                }
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  onSelectMedication(m);
+                  setIsOpen(false);
+                }}
+              >
+                <div>
+                  <div className="font-w600 text-dark fs-13">{m.name}</div>
+                  {m.defaultPosology && (
+                    <small className="text-muted fs-11">
+                      {m.defaultPosology}
+                    </small>
+                  )}
+                </div>
+                <span className="badge badge-sm badge-light text-primary fs-11">
+                  Sélectionner
+                </span>
+              </div>
+            ))}
+          </div>
+          {query && !exactMatch && (
+            <div
+              className="px-3 py-2 text-muted fs-11 bg-light border-top"
+              style={{ fontStyle: "italic" }}
+            >
+              <i className="fa fa-info-circle me-1"></i>
+              Nouveau médicament libre : "{value}"
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const patientSelectStyles = {
+  control: (base, state) => ({
+    ...base,
+    minHeight: "45px",
+    borderRadius: "0.75rem",
+    borderColor: state.isFocused ? "#1e60d5" : "#e4e7ea",
+    boxShadow: state.isFocused ? "0 0 0 0.2rem rgba(30, 96, 213, 0.15)" : "none",
+    "&:hover": {
+      borderColor: "#1e60d5",
+    },
+  }),
+  option: (base, state) => ({
+    ...base,
+    backgroundColor: state.isSelected
+      ? "#1e60d5"
+      : state.isFocused
+      ? "rgba(30, 96, 213, 0.08)"
+      : "transparent",
+    color: state.isSelected ? "#ffffff" : "#333333",
+    fontSize: "13px",
+    cursor: "pointer",
+  }),
+};
 
 // Formules médicales de l'échographie
 export const lccToAge = (mm) => {
@@ -177,18 +337,35 @@ const ConsultationEchoForm = ({
   const [formData, setFormData] = useState({ ...DEFAULT_PRESELECTS });
   const [autreInputs, setAutreInputs] = useState({});
 
-  // Prescription Médicale (Ordonnance intégrée)
+  // Prescription Médicale (Ordonnance intégrée & Popup Modal)
   const [showPrescription, setShowPrescription] = useState(false);
+  const [showPrescriptionModal, setShowPrescriptionModal] = useState(false);
+  const [patientInputSearch, setPatientInputSearch] = useState("");
+  const [localMedications, setLocalMedications] = useState(
+    medications && medications.length > 0 ? medications : initialMedications
+  );
+
+  useEffect(() => {
+    if (medications && medications.length > 0) {
+      setLocalMedications(medications);
+    } else {
+      ApiService.getMedications()
+        .then((data) => {
+          if (Array.isArray(data) && data.length > 0) {
+            setLocalMedications(data);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [medications]);
+
   const [prescriptionItems, setPrescriptionItems] = useState([
     {
-      medication: "SPASFON 80 mg comprimé",
-      posology: "2 comprimés au moment des douleurs (max 6/j)",
+      medication: "",
+      dosage: "",
+      posology: "1 fois par jour",
       duration: "5 jours",
-    },
-    {
-      medication: "TARDYFERON B9 comprimé",
-      posology: "1 comprimé le matin au petit-déjeuner",
-      duration: "1 mois",
+      renewable: "Non renouvelable",
     },
   ]);
 
@@ -299,11 +476,63 @@ const ConsultationEchoForm = ({
     handleFieldChange(targetKey, text);
   };
 
+  // Gestion du patient dans le popup Modal
+  const patientOptions = [
+    {
+      value: "guest",
+      label: "Patiente de passage (sans dossier)",
+      patient: { id: "guest", firstName: "Patiente", lastName: "De Passage" },
+    },
+    ...patients.map((p) => ({
+      value: String(p.id),
+      label: `${p.lastName || ""} ${p.firstName || ""} (DOS-${p.dossierNumber || p.id})`.trim(),
+      patient: p,
+    })),
+  ];
+
+  const selectedPatientOption =
+    patientId === "guest"
+      ? patientOptions[0]
+      : patientOptions.find((opt) => String(opt.value) === String(patientId)) || {
+          value: patientId,
+          label: `${nom} ${prenom}`.trim() || "Patiente sélectionnée",
+        };
+
+  const handleSelectPatientInModal = (selected) => {
+    if (!selected) {
+      setPatientId("guest");
+      setNom("Patiente");
+      setPrenom("De Passage");
+      setDdn("");
+      setPatientInputSearch("");
+      return;
+    }
+    if (selected.value === "guest") {
+      setPatientId("guest");
+      setNom("Patiente");
+      setPrenom("De Passage");
+      setDdn("");
+      setPatientInputSearch("");
+    } else if (selected.patient) {
+      setPatientId(String(selected.patient.id || selected.value));
+      setNom(selected.patient.lastName || "");
+      setPrenom(selected.patient.firstName || "");
+      setDdn(selected.patient.dob || "");
+      setPatientInputSearch("");
+    } else {
+      setPatientId("guest");
+      setNom(selected.label || selected.value);
+      setPrenom("");
+      setDdn("");
+      setPatientInputSearch("");
+    }
+  };
+
   // Gestion des médicaments de l'ordonnance
   const handleAddMed = () => {
     setPrescriptionItems([
       ...prescriptionItems,
-      { medication: "", posology: "", duration: "" },
+      { medication: "", dosage: "", posology: "1 fois par jour", duration: "5 jours", renewable: "Non renouvelable" },
     ]);
   };
 
@@ -320,16 +549,44 @@ const ConsultationEchoForm = ({
   };
 
   const handleSelectPredefinedMed = (index, medName) => {
-    const found = medications.find((m) => (m.name || "").toLowerCase() === medName.toLowerCase());
+    const found = localMedications.find(
+      (m) => (m.name || "").toLowerCase() === (medName || "").toLowerCase()
+    );
     const updated = [...prescriptionItems];
     if (found) {
       updated[index].medication = found.name;
       if (found.defaultPosology) updated[index].posology = found.defaultPosology;
+      if (found.dosage) updated[index].dosage = found.dosage;
       if (found.defaultDuration) updated[index].duration = found.defaultDuration;
     } else {
       updated[index].medication = medName;
     }
     setPrescriptionItems(updated);
+  };
+
+  const handleConfirmPrescriptionModal = (e) => {
+    if (e) e.preventDefault();
+    const hasValidMed = prescriptionItems.some(
+      (item) => item.medication && item.medication.trim() !== ""
+    );
+    if (!hasValidMed) {
+      Swal.fire({
+        icon: "warning",
+        title: "Médicament requis",
+        text: "Veuillez renseigner au moins un médicament pour valider l'ordonnance.",
+        confirmButtonColor: "#1e60d5",
+      });
+      return;
+    }
+    setShowPrescription(true);
+    setShowPrescriptionModal(false);
+    Swal.fire({
+      icon: "success",
+      title: "Ordonnance rattachée !",
+      text: `${prescriptionItems.filter((i) => i.medication && i.medication.trim()).length} médicament(s) rattaché(s) à la consultation échographique.`,
+      timer: 1800,
+      showConfirmButton: false,
+    });
   };
 
   // Construction de l'objet de consultation et ordonnance pour sauvegarde ou impression
@@ -2299,118 +2556,92 @@ const ConsultationEchoForm = ({
             </div>
           )}
 
-          {/* 4. Prescription Médicale (Ordonnance intégrée) */}
-          <div className="mt-3">
-            <div className="d-flex justify-content-between align-items-center mb-2">
-              <Button
-                variant={showPrescription ? "outline-success" : "success"}
-                type="button"
-                size="sm"
-                onClick={() => setShowPrescription(!showPrescription)}
-                className="d-flex align-items-center"
-              >
-                <i className="flaticon-381-file-1 me-1"></i>
-                {showPrescription ? "Masquer l'ordonnance" : "Faire l'ordonnance médicale"}
-              </Button>
-            </div>
-
-            {showPrescription && (
-              <div className="p-3 border rounded-3 mb-3" style={{ backgroundColor: "#f8fafc", borderColor: "#e2e8f0" }}>
-                <div className="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom">
+          {/* 4. Prescription Médicale (Bouton & Carte rattachée) */}
+          {showPrescription && prescriptionItems.some((i) => i.medication && i.medication.trim() !== "") ? (
+            <div className="mt-3 p-3 border rounded bg-white shadow-sm mb-3" style={{ borderLeft: "4px solid #10b981" }} id="echo-prescription-section">
+              <div className="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                <div className="d-flex align-items-center gap-2">
+                  <span className="badge bg-success-light text-success p-2 rounded-circle" style={{ backgroundColor: "rgba(16, 185, 129, 0.15)" }}>
+                    <i className="flaticon-381-file-1 fs-16 text-success"></i>
+                  </span>
                   <div>
-                    <h6 className="text-primary font-w600 mb-0">
-                      <i className="flaticon-381-file-1 me-1"></i> Prescription Médicale (Ordonnance)
-                    </h6>
+                    <h6 className="font-w700 mb-0 text-dark fs-14">Ordonnance Médicale Rattachée</h6>
                     <span className="text-muted fs-12">
-                      Médicaments prescrits lors de cette consultation échographique
+                      {prescriptionItems.filter((i) => i.medication && i.medication.trim()).length} médicament(s) prescrit(s)
                     </span>
                   </div>
+                </div>
+                <div className="d-flex gap-2">
                   <Button
                     variant="outline-primary"
                     size="sm"
                     type="button"
-                    onClick={handleAddMed}
+                    onClick={() => setShowPrescriptionModal(true)}
+                    className="d-flex align-items-center btn-rounded"
                   >
-                    <i className="flaticon-381-add-1 me-1"></i> Ajouter un médicament
+                    <i className="fa fa-pencil-alt me-1"></i> Modifier
+                  </Button>
+                  <Button
+                    variant="outline-info"
+                    size="sm"
+                    type="button"
+                    onClick={handlePrintPrescriptionOnly}
+                    className="d-flex align-items-center btn-rounded"
+                  >
+                    <i className="fa fa-print me-1"></i> Imprimer
+                  </Button>
+                  <Button
+                    variant="outline-danger"
+                    size="sm"
+                    type="button"
+                    onClick={() => {
+                      setShowPrescription(false);
+                      setPrescriptionItems([
+                        { medication: "", dosage: "", posology: "1 fois par jour", duration: "5 jours", renewable: "Non renouvelable" }
+                      ]);
+                    }}
+                    className="d-flex align-items-center btn-rounded"
+                  >
+                    <i className="fa fa-trash me-1"></i> Supprimer
                   </Button>
                 </div>
-
-                {prescriptionItems.map((item, index) => (
-                  <div key={index} className="p-2 border rounded mb-2 bg-white">
-                    <div className="d-flex justify-content-between align-items-center mb-1">
-                      <strong className="text-muted fs-11">Médicament #{index + 1}</strong>
-                      <div className="d-flex align-items-center gap-2 ms-auto me-2">
-                        <select
-                          className="form-select form-select-sm py-0 px-2 fs-11 text-primary border-primary"
-                          style={{ width: "auto", minWidth: "180px", height: "24px" }}
-                          value=""
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              handleSelectPredefinedMed(index, e.target.value);
-                            }
-                          }}
-                        >
-                          <option value="">-- Choisir un médicament existant --</option>
-                          {medications.map((m, mIdx) => (
-                            <option key={m.id || `${m.name}-${mIdx}`} value={m.name}>
-                              {m.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      {prescriptionItems.length > 1 && (
-                        <button
-                          type="button"
-                          className="btn btn-outline-danger btn-xs py-0 px-2"
-                          onClick={() => handleRemoveMed(index)}
-                        >
-                          Supprimer
-                        </button>
-                      )}
-                    </div>
-                    <div className="row g-2">
-                      <div className="col-md-5 col-12">
-                        <input
-                          type="text"
-                          className="form-control form-control-sm"
-                          value={item.medication}
-                          list="consult-medications-datalist"
-                          placeholder="Écrire un médicament ou sélectionner dans la liste..."
-                          onChange={(e) => {
-                            handleMedChange(index, "medication", e.target.value);
-                            const exact = medications.find(
-                              (m) => (m.name || "").toLowerCase() === e.target.value.trim().toLowerCase()
-                            );
-                            if (exact) {
-                              handleSelectPredefinedMed(index, exact.name);
-                            }
-                          }}
-                        />
-                      </div>
-                      <div className="col-md-4 col-12">
-                        <input
-                          type="text"
-                          className="form-control form-control-sm"
-                          placeholder="Posologie (ex: 2 comprimés le soir...)"
-                          value={item.posology}
-                          onChange={(e) => handleMedChange(index, "posology", e.target.value)}
-                        />
-                      </div>
-                      <div className="col-md-3 col-12">
-                        <input
-                          type="text"
-                          className="form-control form-control-sm"
-                          placeholder="Durée (ex: 5 jours, 1 mois...)"
-                          value={item.duration}
-                          onChange={(e) => handleMedChange(index, "duration", e.target.value)}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
               </div>
-            )}
-          </div>
+              <div className="table-responsive mt-2">
+                <table className="table table-sm table-borderless mb-0">
+                  <tbody>
+                    {prescriptionItems
+                      .filter((item) => item.medication && item.medication.trim())
+                      .map((item, idx) => (
+                        <tr key={idx} className="border-bottom">
+                          <td className="ps-0 py-2" style={{ width: "55%" }}>
+                            <i className="fa fa-pills text-primary me-2"></i>
+                            <strong className="text-dark fs-13">{item.medication}</strong>
+                          </td>
+                          <td className="py-2 text-muted fs-12" style={{ width: "45%" }}>
+                            <i className="fa fa-clock text-muted me-1"></i>
+                            {item.posology || "1 fois par jour"}
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-3 mb-3">
+              <Button
+                variant="success"
+                type="button"
+                size="sm"
+                onClick={() => setShowPrescriptionModal(true)}
+                className="d-flex align-items-center text-white"
+                style={{ backgroundColor: "#10b981", borderColor: "#10b981" }}
+              >
+                <i className="flaticon-381-file-1 me-1"></i>
+                Faire l'ordonnance médicale
+              </Button>
+            </div>
+          )}
         </div>
 
         {/* Pied de formulaire avec Actions */}
@@ -2448,6 +2679,317 @@ const ConsultationEchoForm = ({
           </div>
         </div>
       </form>
+
+      {/* POPUP MODAL NOUVELLE ORDONNANCE (Identique à admin/ordonnances) */}
+      <Modal
+        show={showPrescriptionModal}
+        onHide={() => setShowPrescriptionModal(false)}
+        size="lg"
+        centered
+        backdrop="static"
+        contentClassName="border-0 shadow-lg"
+        style={{ zIndex: 1055 }}
+      >
+        <div
+          className="modal-header border-0 pb-1 pt-4 px-4 d-flex justify-content-between align-items-center"
+          style={{
+            background: "#ffffff",
+            borderTopLeftRadius: "1rem",
+            borderTopRightRadius: "1rem",
+          }}
+        >
+          <div>
+            <h4 className="modal-title font-w700 text-dark mb-0 fs-18">
+              Nouvelle Ordonnance
+            </h4>
+            <p className="text-muted fs-12 mb-0 mt-1">
+              Prescription médicamenteuse et posologies pour le patient
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn-close"
+            aria-label="Fermer"
+            onClick={() => setShowPrescriptionModal(false)}
+            style={{ fontSize: "14px" }}
+          ></button>
+        </div>
+
+        <form onSubmit={handleConfirmPrescriptionModal}>
+          <div className="modal-body px-4 py-3" style={{ background: "#ffffff" }}>
+            {/* 1. Ligne Supérieure : Patient * et Date du document * */}
+            <div className="row g-3 mb-3">
+              <div className="col-md-8">
+                <label className="form-label fs-11 font-w700 text-uppercase text-muted mb-1 d-flex align-items-center gap-1">
+                  <i className="fa fa-user text-primary opacity-75"></i>
+                  <span>PATIENT <span className="text-danger">*</span></span>
+                </label>
+                <CreatableSelect
+                  isSearchable={true}
+                  isClearable={true}
+                  placeholder="Rechercher ou saisir un nouveau nom de patient..."
+                  options={patientOptions}
+                  value={selectedPatientOption}
+                  styles={patientSelectStyles}
+                  menuPortalTarget={typeof document !== "undefined" ? document.body : null}
+                  inputValue={patientInputSearch}
+                  onInputChange={(val, actionMeta) => {
+                    if (actionMeta.action === "input-change") {
+                      setPatientInputSearch(val);
+                    }
+                  }}
+                  onChange={handleSelectPatientInModal}
+                  onCreateOption={(inputValue) => {
+                    const clean = inputValue.trim();
+                    if (!clean) return;
+                    setPatientId("guest");
+                    setNom(clean);
+                    setPrenom("");
+                    setDdn("");
+                    setPatientInputSearch("");
+                  }}
+                  formatCreateLabel={(inputValue) => (
+                    <span>
+                      <i className="fa fa-user-plus text-primary me-2"></i>
+                      Dossier patiente de passage : <strong className="text-primary">"{inputValue}"</strong>
+                    </span>
+                  )}
+                  noOptionsMessage={({ inputValue }) =>
+                    inputValue
+                      ? `Appuyez sur Entrée pour utiliser "${inputValue}"`
+                      : "Tapez le nom, prénom ou n° dossier pour rechercher"
+                  }
+                />
+              </div>
+
+              <div className="col-md-4">
+                <label className="form-label fs-11 font-w700 text-uppercase text-muted mb-1 d-flex align-items-center gap-1">
+                  <i className="fa fa-calendar-alt text-muted opacity-75"></i>
+                  <span>DATE DU DOCUMENT <span className="text-danger">*</span></span>
+                </label>
+                <WheelDatePicker
+                  value={dateExam || new Date().toISOString().split("T")[0]}
+                  onChange={(e) => setDateExam(e.target.value)}
+                  title="DATE DU DOCUMENT"
+                  required
+                  style={{ height: "45px" }}
+                />
+              </div>
+            </div>
+
+            {/* 2. En-tête de section Médicaments & Posologies avec bouton "+ Ajouter" */}
+            <div className="d-flex justify-content-between align-items-center mb-2 pt-2 border-top">
+              <span
+                className="text-uppercase text-muted fs-11 font-w700"
+                style={{ letterSpacing: "0.5px" }}
+              >
+                MÉDICAMENTS & POSOLOGIES
+              </span>
+              <button
+                type="button"
+                className="btn btn-link text-primary font-w600 p-0 text-decoration-none fs-13 d-flex align-items-center gap-1"
+                onClick={handleAddMed}
+              >
+                <i className="fa fa-plus-circle fs-14"></i>
+                <span>Ajouter</span>
+              </button>
+            </div>
+
+            {/* 3. Table des médicaments avec 3 champs essentiels */}
+            <div className="table-responsive mb-2" style={{ overflow: "visible" }}>
+              <table className="table table-borderless align-middle mb-0">
+                <thead>
+                  <tr
+                    className="text-muted fs-11 text-uppercase font-w600"
+                    style={{ borderBottom: "1px solid #f1f5f9" }}
+                  >
+                    <th style={{ width: "55%" }}>
+                      NOM DU MÉDICAMENT <span className="text-danger">*</span>
+                    </th>
+                    <th style={{ width: "40%" }}>
+                      COMBIEN DE FOIS PAR JOUR <span className="text-danger">*</span>
+                    </th>
+                    <th style={{ width: "5%" }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {prescriptionItems.map((item, index) => (
+                    <tr key={index}>
+                      <td className="ps-0 py-2 align-middle">
+                        <MedicationSearchInput
+                          value={item.medication}
+                          onChange={(val) =>
+                            handleMedChange(index, "medication", val)
+                          }
+                          medications={localMedications}
+                          onSelectMedication={(med) =>
+                            handleSelectPredefinedMed(index, med.name)
+                          }
+                          placeholder="Ex: PARACÉTAMOL 1000 mg, AMOXICILLINE..."
+                        />
+                      </td>
+                      <td className="py-2 align-middle">
+                        <div
+                          className="input-group input-group-sm flex-nowrap"
+                          style={{ height: "44px" }}
+                        >
+                          <input
+                            type="text"
+                            list={`echo-modal-posology-options-${index}`}
+                            className="form-control form-control-sm border-end-0"
+                            placeholder="Ex: 3 fois par jour"
+                            value={item.posology}
+                            onChange={(e) =>
+                              handleMedChange(index, "posology", e.target.value)
+                            }
+                            required
+                            style={{
+                              borderRadius: "0.6rem 0 0 0.6rem",
+                              borderColor: "#e2e8f0",
+                              height: "44px",
+                              fontSize: "13px",
+                              fontWeight: "500",
+                              minWidth: "120px",
+                            }}
+                          />
+                          <datalist id={`echo-modal-posology-options-${index}`}>
+                            <option value="1 fois par jour" />
+                            <option value="2 fois par jour" />
+                            <option value="3 fois par jour" />
+                            <option value="4 fois par jour" />
+                            <option value="1 comprimé matin et soir" />
+                            <option value="1 comprimé matin, midi et soir" />
+                            <option value="En cas de besoin (douleur / fièvre)" />
+                          </datalist>
+
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${
+                              item.posology === "1 fois par jour"
+                                ? "btn-primary text-white"
+                                : "btn-light text-dark border-top border-bottom"
+                            }`}
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: "600",
+                              padding: "0 10px",
+                              borderColor: "#e2e8f0",
+                              whiteSpace: "nowrap",
+                            }}
+                            onClick={() =>
+                              handleMedChange(index, "posology", "1 fois par jour")
+                            }
+                            title="1 fois par jour"
+                          >
+                            1 fois/j
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${
+                              item.posology === "2 fois par jour"
+                                ? "btn-primary text-white"
+                                : "btn-light text-dark border-top border-bottom"
+                            }`}
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: "600",
+                              padding: "0 10px",
+                              borderColor: "#e2e8f0",
+                              whiteSpace: "nowrap",
+                            }}
+                            onClick={() =>
+                              handleMedChange(index, "posology", "2 fois par jour")
+                            }
+                            title="2 fois par jour"
+                          >
+                            2 fois/j
+                          </button>
+                          <button
+                            type="button"
+                            className={`btn btn-sm ${
+                              item.posology === "3 fois par jour"
+                                ? "btn-primary text-white"
+                                : "btn-light text-dark border-top border-bottom border-end"
+                            }`}
+                            style={{
+                              fontSize: "11px",
+                              fontWeight: "600",
+                              padding: "0 10px",
+                              borderRadius: "0 0.6rem 0.6rem 0",
+                              borderColor: "#e2e8f0",
+                              whiteSpace: "nowrap",
+                            }}
+                            onClick={() =>
+                              handleMedChange(index, "posology", "3 fois par jour")
+                            }
+                            title="3 fois par jour"
+                          >
+                            3 fois/j
+                          </button>
+                        </div>
+                      </td>
+                      <td
+                        className="pe-0 py-2 text-center align-middle"
+                        style={{ width: "35px" }}
+                      >
+                        {prescriptionItems.length > 1 && (
+                          <button
+                            type="button"
+                            className="btn btn-link text-danger p-1"
+                            onClick={() => handleRemoveMed(index)}
+                            title="Supprimer cette ligne"
+                          >
+                            <i className="fa fa-trash fs-15 text-muted hover-danger"></i>
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Pied de modal avec boutons Annuler et Valider */}
+          <div
+            className="modal-footer border-0 pt-0 pb-4 px-4 d-flex justify-content-end gap-2"
+            style={{
+              background: "#ffffff",
+              borderBottomLeftRadius: "1rem",
+              borderBottomRightRadius: "1rem",
+            }}
+          >
+            <Button
+              variant="light"
+              className="btn-rounded px-4"
+              style={{
+                color: "#475569",
+                backgroundColor: "#f1f5f9",
+                border: "none",
+                fontWeight: "500",
+                fontSize: "13px",
+              }}
+              onClick={() => setShowPrescriptionModal(false)}
+            >
+              Annuler
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+              className="btn-rounded px-4"
+              style={{
+                backgroundColor: "#1e60d5",
+                borderColor: "#1e60d5",
+                fontWeight: "600",
+                fontSize: "13px",
+              }}
+            >
+              <i className="fa fa-check me-2"></i>
+              Valider l'ordonnance
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 };

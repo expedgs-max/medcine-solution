@@ -166,8 +166,14 @@ const DashboardCabinet = () => {
   const todayAppointments = todayAppointmentsList.length;
   const waitingCount = waitingRoom.filter((w) => w.status === "En attente" || (w.status && w.status.toLowerCase().includes("attente"))).length;
   const completedToday = todayAppointmentsList.filter((a) => a.status === "Terminé" || a.status === "En consultation" || a.status === "Arrivé").length;
+  const getInvDateStr = (inv) => {
+    if (!inv) return "";
+    const raw = inv.date || inv.invoice_date || inv.createdAt || inv.created_at || "";
+    return String(raw).trim().split("T")[0].split(" ")[0];
+  };
+
   const todayRevenue = (invoices.length > 0 ? invoices : initialInvoices)
-    .filter((inv) => inv.status === "Payée")
+    .filter((inv) => (inv.status === "Payée" || inv.status === "Encaissé") && getInvDateStr(inv) === todayStr)
     .reduce((acc, curr) => acc + (parseFloat(curr.amount) || 0), 0);
   const pendingInvoicesAmount = (invoices.length > 0 ? invoices : initialInvoices)
     .filter((inv) => inv.status !== "Payée")
@@ -421,7 +427,10 @@ const DashboardCabinet = () => {
                                   className="btn btn-outline-success btn-xs"
                                   onClick={async () => {
                                     try {
-                                      await ApiService.updateAppointment({ id: rdv.id, status: "Arrivé" });
+                                      const cleanId = typeof rdv.id === "string" && rdv.id.startsWith("RDV-")
+                                        ? parseInt(rdv.id.replace("RDV-", ""), 10)
+                                        : parseInt(rdv.id, 10) || rdv.id;
+                                      await ApiService.updateAppointment({ id: cleanId, status: "Arrivé" });
                                       setAppointments((prev) =>
                                         prev.map((a) => (a.id === rdv.id ? { ...a, status: "Arrivé" } : a))
                                       );
@@ -440,7 +449,10 @@ const DashboardCabinet = () => {
                                     className="btn btn-success btn-xs p-1 px-2"
                                     onClick={async () => {
                                       try {
-                                        await ApiService.updateAppointment({ id: rdv.id, status: "Confirmé" });
+                                        const cleanId = typeof rdv.id === "string" && rdv.id.startsWith("RDV-")
+                                          ? parseInt(rdv.id.replace("RDV-", ""), 10)
+                                          : parseInt(rdv.id, 10) || rdv.id;
+                                        await ApiService.updateAppointment({ id: cleanId, status: "Confirmé" });
                                         setAppointments((prev) =>
                                           prev.map((a) => (a.id === rdv.id ? { ...a, status: "Confirmé" } : a))
                                         );

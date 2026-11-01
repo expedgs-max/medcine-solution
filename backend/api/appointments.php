@@ -51,6 +51,14 @@ function calculateTicketNumber($timeStr) {
 
 function handleGetAppointments($db) {
     try {
+        // Auto-réparation automatique : Si des rendez-vous ont id = 0, leur attribuer immédiatement un ID valide
+        try {
+            $zeroCheck = $db->query("SELECT COUNT(*) FROM appointments WHERE id = 0");
+            if ($zeroCheck && intval($zeroCheck->fetchColumn()) > 0) {
+                $db->exec("SET @new_id = (SELECT COALESCE(MAX(id), 20) FROM appointments WHERE id > 0); UPDATE appointments SET id = (@new_id := @new_id + 1) WHERE id = 0;");
+            }
+        } catch (Exception $e) {}
+
         $date = $_GET['date'] ?? null;
         $params = [];
         $where = "";
@@ -156,10 +164,15 @@ function handleCreateAppointment($db) {
         $price = isset($body['price']) ? (float)$body['price'] : 2500.0;
         $reason = $body['reason'] ?? $consultationType;
 
-        $sql = "INSERT INTO appointments (patient_id, patient_name, patient_phone, patient_email, doctor_id, appointment_date, appointment_time, duration, reason, consultation_type, price, status, notes)
-                VALUES (:pid, :pname, :pphone, :pemail, 1, :adate, :atime, :dur, :reason, :ctype, :price, :status, :notes)";
+        // Calculer l'ID automatiquement pour garantir un ID unique même si AUTO_INCREMENT est manquant dans la table
+        $maxStmt = $db->query("SELECT COALESCE(MAX(id), 20) + 1 FROM appointments WHERE id > 0");
+        $nextId = intval($maxStmt->fetchColumn() ?: 21);
+
+        $sql = "INSERT INTO appointments (id, patient_id, patient_name, patient_phone, patient_email, doctor_id, appointment_date, appointment_time, duration, reason, consultation_type, price, status, notes)
+                VALUES (:id, :pid, :pname, :pphone, :pemail, 1, :adate, :atime, :dur, :reason, :ctype, :price, :status, :notes)";
         $stmt = $db->prepare($sql);
         $stmt->execute([
+            ':id' => $nextId,
             ':pid' => $patientId,
             ':pname' => !empty($patientName) ? $patientName : null,
             ':pphone' => !empty($patientPhone) ? $patientPhone : null,
@@ -174,7 +187,7 @@ function handleCreateAppointment($db) {
             ':notes' => $body['notes'] ?? null
         ]);
 
-        $newId = intval($db->lastInsertId());
+        $newId = $nextId;
         $ticketNo = calculateTicketNumber($time);
 
         // Si créé avec le statut Arrivé
@@ -211,27 +224,47 @@ function handleCreateAppointment($db) {
 
 function handleUpdateAppointment($db) {
     $body = getRequestBody();
-    $id = $body['id'] ?? null;
+    $rawId = $body['id'] ?? $_GET['id'] ?? $_REQUEST['id'] ?? null;
 
-    if (!$id) {
+    if ($rawId === null || $rawId === '') {
         sendResponse("error", null, "Identifiant rendez-vous manquant", 400);
+    }
+
+    $id = 0;
+    if (is_numeric($rawId)) {
+        $id = (int)$rawId;
+    } elseif (is_string($rawId) && preg_match('/(\d+)/', $rawId, $matches)) {
+        $id = (int)$matches[1];
+    }
+
+    // Si l'id reçu est 0, lui réassigner un vrai ID unique en base au lieu d'échouer avec 400
+    if ($id <= 0 && ($rawId === 0 || $rawId === '0' || $rawId === 'RDV-0')) {
+        $maxQ = $db->query("SELECT COALESCE(MAX(id), 20) + 1 FROM appointments WHERE id > 0");
+        $assignedId = intval($maxQ->fetchColumn() ?: 21);
+        $db->prepare("UPDATE appointments SET id = :new_id WHERE id = 0 LIMIT 1")->execute([':new_id' => $assignedId]);
+        $id = $assignedId;
+    }
+
+    if ($id <= 0) {
+        sendResponse("error", null, "Identifiant rendez-vous invalide : " . json_encode($rawId), 400);
     }
 
     try {
         $fields = [];
-        $params = [':id' => (int)$id];
+        $params = [':id' => $id];
 
         if (isset($body['status'])) {
             $fields[] = "status = :status";
             $params[':status'] = $body['status'];
         }
-        if (isset($body['date'])) {
+        if (isset($body['date']) || isset($body['appointment_date']) || isset($body['appointmentDate'])) {
             $fields[] = "appointment_date = :adate";
-            $params[':adate'] = $body['date'];
+            $params[':adate'] = $body['date'] ?? ($body['appointment_date'] ?? $body['appointmentDate']);
         }
-        if (isset($body['time'])) {
+        if (isset($body['time']) || isset($body['appointment_time']) || isset($body['appointmentTime'])) {
+            $tVal = $body['time'] ?? ($body['appointment_time'] ?? $body['appointmentTime']);
             $fields[] = "appointment_time = :atime";
-            $params[':atime'] = strlen($body['time']) === 5 ? ($body['time'] . ":00") : $body['time'];
+            $params[':atime'] = strlen($tVal) === 5 ? ($tVal . ":00") : $tVal;
         }
         if (isset($body['duration'])) {
             $fields[] = "duration = :dur";
@@ -249,21 +282,22 @@ function handleUpdateAppointment($db) {
             $fields[] = "price = :price";
             $params[':price'] = (float)$body['price'];
         }
-        if (isset($body['patientPhone']) || isset($body['phone'])) {
+        if (isset($body['patientPhone']) || isset($body['patient_phone']) || isset($body['phone'])) {
             $fields[] = "patient_phone = :pphone";
-            $params[':pphone'] = trim($body['patientPhone'] ?? $body['phone']);
+            $params[':pphone'] = trim($body['patientPhone'] ?? ($body['patient_phone'] ?? $body['phone']));
         }
-        if (isset($body['patientEmail']) || isset($body['email'])) {
+        if (isset($body['patientEmail']) || isset($body['patient_email']) || isset($body['email'])) {
             $fields[] = "patient_email = :pemail";
-            $params[':pemail'] = trim($body['patientEmail'] ?? $body['email']);
+            $params[':pemail'] = trim($body['patientEmail'] ?? ($body['patient_email'] ?? $body['email']));
         }
-        if (array_key_exists('patientId', $body)) {
+        if (array_key_exists('patientId', $body) || array_key_exists('patient_id', $body)) {
+            $pidVal = $body['patientId'] ?? ($body['patient_id'] ?? null);
             $fields[] = "patient_id = :pid";
-            $params[':pid'] = (!empty($body['patientId']) && $body['patientId'] !== 'sans_compte') ? intval($body['patientId']) : null;
+            $params[':pid'] = (!empty($pidVal) && $pidVal !== 'sans_compte') ? intval($pidVal) : null;
         }
-        if (isset($body['patientName'])) {
+        if (isset($body['patientName']) || isset($body['patient_name'])) {
             $fields[] = "patient_name = :pname";
-            $params[':pname'] = trim($body['patientName']);
+            $params[':pname'] = trim($body['patientName'] ?? $body['patient_name']);
         }
         if (isset($body['notes'])) {
             $fields[] = "notes = :notes";
@@ -271,7 +305,7 @@ function handleUpdateAppointment($db) {
         }
 
         if (empty($fields)) {
-            sendResponse("error", null, "Aucun champ à mettre à jour", 400);
+            sendResponse("success", ["id" => $id], "Aucun champ à modifier", 200);
         }
 
         $sql = "UPDATE appointments SET " . implode(", ", $fields) . " WHERE id = :id";
@@ -281,7 +315,7 @@ function handleUpdateAppointment($db) {
         // Si le statut passe à Arrivé, synchroniser automatiquement avec la salle d'attente MySQL
         if (isset($body['status']) && $body['status'] === 'Arrivé') {
             $chkWait = $db->prepare("SELECT id FROM waiting_room WHERE appointment_id = :aid AND status != 'Terminé' LIMIT 1");
-            $chkWait->execute([':aid' => (int)$id]);
+            $chkWait->execute([':aid' => $id]);
             if (!$chkWait->fetchColumn()) {
                 $aptQ = $db->prepare("
                     SELECT a.patient_id, a.patient_name, a.patient_phone, a.appointment_time, a.reason,
@@ -290,7 +324,7 @@ function handleUpdateAppointment($db) {
                     LEFT JOIN patients p ON a.patient_id = p.id
                     WHERE a.id = :id
                 ");
-                $aptQ->execute([':id' => (int)$id]);
+                $aptQ->execute([':id' => $id]);
                 $aptRow = $aptQ->fetch(PDO::FETCH_ASSOC);
                 if ($aptRow) {
                     $pName = trim($aptRow['patient_name'] ?? '');
@@ -307,7 +341,7 @@ function handleUpdateAppointment($db) {
                         ':pid' => $aptRow['patient_id'] ?: null,
                         ':pname' => $pName,
                         ':pphone' => $pPhone,
-                        ':aid' => (int)$id,
+                        ':aid' => $id,
                         ':atime' => $aptRow['appointment_time'] ?: date('H:i:s'),
                         ':reason' => $aptRow['reason'] ?: 'Consultation générale'
                     ]);
@@ -315,13 +349,13 @@ function handleUpdateAppointment($db) {
             }
         } elseif (isset($body['status']) && $body['status'] === 'En consultation') {
             $db->prepare("UPDATE waiting_room SET status = 'En consultation' WHERE appointment_id = :aid AND status = 'En attente'")
-               ->execute([':aid' => (int)$id]);
+               ->execute([':aid' => $id]);
         } elseif (isset($body['status']) && in_array($body['status'], ['Terminé', 'Absent', 'Annulé'])) {
             $db->prepare("UPDATE waiting_room SET status = 'Terminé' WHERE appointment_id = :aid AND status != 'Terminé'")
-               ->execute([':aid' => (int)$id]);
+               ->execute([':aid' => $id]);
         }
 
-        sendResponse("success", ["id" => (int)$id], "Rendez-vous mis à jour avec succès");
+        sendResponse("success", ["id" => $id], "Rendez-vous mis à jour avec succès");
     } catch (Exception $e) {
         sendResponse("error", null, "Erreur modification rendez-vous : " . $e->getMessage(), 500);
     }

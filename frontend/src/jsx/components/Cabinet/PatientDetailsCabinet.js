@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import WheelDatePicker from "./WheelDatePicker";
 import { Modal } from "react-bootstrap";
@@ -25,6 +25,7 @@ const PatientDetailsCabinet = () => {
   const [selectedPatientId, setSelectedPatientId] = useState(patientIdParam);
   const [selectedPrescription, setSelectedPrescription] = useState(null);
   const [selectedEchoConsultation, setSelectedEchoConsultation] = useState(null);
+  const [selectedConsultation, setSelectedConsultation] = useState(null);
   const [consultations, setConsultations] = useState([]);
   const [prescriptions, setPrescriptions] = useState([]);
   const [invoices, setInvoices] = useState([]);
@@ -40,6 +41,8 @@ const PatientDetailsCabinet = () => {
   const [docFile, setDocFile] = useState(null);
   const [docFilePreview, setDocFilePreview] = useState(null);
   const [previewingDoc, setPreviewingDoc] = useState(null);
+  const [isDraggingDoc, setIsDraggingDoc] = useState(false);
+  const patientDocFileInputRef = useRef(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -140,20 +143,33 @@ const PatientDetailsCabinet = () => {
     invoices.length > 0 ? invoices : initialInvoices
   ).filter((i) => String(i.patientId) === String(patient?.id));
 
+  const processDocumentFile = (file) => {
+    if (!file) return;
+    setDocFile(file);
+    if (!docTitle) {
+      const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
+      setDocTitle(cleanName);
+    }
+    const ext = file.name.split(".").pop()?.toUpperCase() || "";
+    if (["JPG", "JPEG", "PNG", "WEBP", "DICOM"].includes(ext)) {
+      setDocCategory("Imagerie & Radiologie");
+    } else if (["PDF", "DOC", "DOCX"].includes(ext)) {
+      setDocCategory("Comptes rendus spécialistes");
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      setDocFilePreview(event.target.result);
+    };
+    reader.readAsDataURL(file);
+    setShowAddDocForm(true);
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (file) {
-      setDocFile(file);
-      if (!docTitle) {
-        const cleanName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
-        setDocTitle(cleanName);
-      }
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        setDocFilePreview(event.target.result);
-      };
-      reader.readAsDataURL(file);
+      processDocumentFile(file);
     }
+    if (patientDocFileInputRef.current) patientDocFileInputRef.current.value = "";
   };
 
   const handleResetDocForm = () => {
@@ -1842,7 +1858,7 @@ const PatientDetailsCabinet = () => {
         {activeTab === "consultations" && (
           <div className="patient-panel-card">
             <div className="patient-panel-card-header">
-              <h3 className="patient-panel-card-title">Consultations médicales</h3>
+              <h3 className="patient-panel-card-title">Consultations médicales ({patientConsultations.length})</h3>
               <Link
                 to={`/consultations?patientId=${patient.id}`}
                 className="patient-btn-primary"
@@ -1852,141 +1868,227 @@ const PatientDetailsCabinet = () => {
               </Link>
             </div>
             <div>
+              {/* Détails de la consultation sélectionnée (style admin/consultations) */}
+              {selectedConsultation && (
+                <div className="p-3 mb-4 rounded-3 border border-primary bg-light shadow-sm" id="patient-consultation-details">
+                  <div className="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom flex-wrap gap-2">
+                    <div>
+                      <h5 className="mb-0 text-primary font-w600">
+                        <i className="flaticon-381-notepad me-2"></i>
+                        {selectedConsultation.consultationNumber} • {selectedConsultation.reason}
+                      </h5>
+                      <span className="text-muted fs-12">
+                        Date : {selectedConsultation.date} à {selectedConsultation.time} • Cotation : {selectedConsultation.billingCode || "—"}
+                      </span>
+                    </div>
+                    <div className="d-flex align-items-center gap-2">
+                      <span className="patient-badge-status">
+                        <span className="patient-status-dot-pulse"></span>
+                        {selectedConsultation.status || "Clôturée"}
+                      </span>
+                      <button
+                        type="button"
+                        className="btn btn-xs btn-outline-secondary"
+                        onClick={() => setSelectedConsultation(null)}
+                      >
+                        <i className="fa fa-times me-1"></i> Fermer
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Constantes vitales */}
+                  <div className="row g-2 mb-3">
+                    <div className="col-md-3 col-6">
+                      <div className="p-2 border rounded text-center bg-white">
+                        <span className="text-muted fs-11 d-block">Tension Artérielle</span>
+                        <strong className="text-dark fs-13">{selectedConsultation.vitals?.bp || "-"} mmHg</strong>
+                      </div>
+                    </div>
+                    <div className="col-md-3 col-6">
+                      <div className="p-2 border rounded text-center bg-white">
+                        <span className="text-muted fs-11 d-block">Poids</span>
+                        <strong className="text-dark fs-13">{selectedConsultation.vitals?.weight ? `${selectedConsultation.vitals.weight} kg` : "-"}</strong>
+                      </div>
+                    </div>
+                    <div className="col-md-3 col-6">
+                      <div className="p-2 border rounded text-center bg-white">
+                        <span className="text-muted fs-11 d-block">Température / DDR</span>
+                        <strong className="text-dark fs-13">
+                          {selectedConsultation.vitals?.temperature || selectedConsultation.vitals?.temp
+                            ? `${selectedConsultation.vitals.temperature || selectedConsultation.vitals.temp} °C`
+                            : (selectedConsultation.vitals?.ddr || "-")}
+                        </strong>
+                      </div>
+                    </div>
+                    <div className="col-md-3 col-6">
+                      <div className="p-2 border rounded text-center bg-white">
+                        <span className="text-muted fs-11 d-block">Pouls / Terme</span>
+                        <strong className="text-dark fs-13">
+                          {selectedConsultation.vitals?.heartRate || selectedConsultation.vitals?.hr
+                            ? `${selectedConsultation.vitals.heartRate || selectedConsultation.vitals.hr} bpm`
+                            : (selectedConsultation.vitals?.terme || "-")}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Diagnostic & Observations */}
+                  <div className="row g-2 mb-3">
+                    <div className="col-md-6">
+                      <label className="fs-12 font-w600 text-muted mb-1 d-block">DIAGNOSTIC (CIM-10)</label>
+                      <div className="p-2.5 bg-white rounded border fs-13 text-dark font-w500" style={{ minHeight: "55px" }}>
+                        {selectedConsultation.diagnosis || "Aucun diagnostic renseigné."}
+                      </div>
+                    </div>
+                    <div className="col-md-6">
+                      <label className="fs-12 font-w600 text-muted mb-1 d-block">OBSERVATIONS & EXAMEN</label>
+                      <div className="p-2.5 bg-white rounded border fs-13 text-dark" style={{ minHeight: "55px" }}>
+                        {selectedConsultation.examFindings || "Aucune observation."}
+                        {selectedConsultation.recommendations ? ` — ${selectedConsultation.recommendations}` : ""}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Échographie rattachée */}
+                  {(selectedConsultation.echoFindings || selectedConsultation.echoType || selectedConsultation.ultrasoundReport) && (
+                    <div
+                      className="p-2.5 mb-2 rounded fs-13"
+                      style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534" }}
+                    >
+                      <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
+                        <span className="font-w600 d-flex align-items-center gap-1">
+                          <i className="fa fa-wave-square me-1"></i>
+                          {selectedConsultation.echoType || "Compte-Rendu Échographique"}
+                        </span>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-outline-success d-flex align-items-center gap-1"
+                          onClick={() => setSelectedEchoConsultation(selectedConsultation)}
+                        >
+                          <i className="fa fa-file-medical"></i> Compte-rendu complet
+                        </button>
+                      </div>
+                      <div style={{ color: "#14532d" }}>
+                        <strong>Conclusion : </strong>
+                        {selectedConsultation.echoFindings || selectedConsultation.echoConclusion || selectedConsultation.ultrasoundReport?.findings || "Échographie enregistrée."}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ordonnance rattachée */}
+                  {(selectedConsultation.prescriptionCreated || selectedConsultation.prescriptionData) && (
+                    <div
+                      className="p-2.5 rounded fs-13 d-flex align-items-center justify-content-between flex-wrap gap-2"
+                      style={{ background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e40af" }}
+                    >
+                      <div className="d-flex align-items-center gap-2">
+                        <i className="fa fa-prescription text-primary"></i>
+                        <span>
+                          <strong>Ordonnance : </strong>
+                          {selectedConsultation.prescriptionData?.items?.length
+                            ? `${selectedConsultation.prescriptionData.items.length} médicament(s) prescrit(s)`
+                            : "Prescription médicale établie"}
+                        </span>
+                      </div>
+                      {selectedConsultation.prescriptionData && (
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-primary text-white"
+                          onClick={() => setSelectedPrescription(selectedConsultation.prescriptionData)}
+                        >
+                          <i className="fa fa-print me-1"></i> Voir l'ordonnance
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tableau simple et épuré (identique à admin/consultations) */}
               {patientConsultations.length === 0 ? (
                 <div className="text-center py-4 text-muted">
                   Aucune consultation archivée pour ce patient.
                 </div>
               ) : (
-                <div>
-                  {patientConsultations.map((cs) => (
-                    <div
-                      key={cs.id}
-                      className="p-3 mb-3 border rounded-3"
-                      style={{ background: "#f8fafc" }}
-                    >
-                      <div className="d-flex justify-content-between align-items-start mb-2 flex-wrap gap-2">
-                        <div>
-                          <h6
-                            className="font-w600 mb-0"
-                            style={{ color: "#2563eb" }}
+                <div className="table-responsive">
+                  <table className="table table-hover mb-0" style={{ width: "100%" }}>
+                    <thead>
+                      <tr>
+                        <th style={{ minWidth: "110px" }}><strong>DATE & HEURE</strong></th>
+                        <th><strong>MOTIF</strong></th>
+                        <th className="d-none d-md-table-cell"><strong>DIAGNOSTIC (CIM-10)</strong></th>
+                        <th className="d-none d-md-table-cell"><strong>COTATION</strong></th>
+                        <th className="d-none d-sm-table-cell"><strong>STATUT</strong></th>
+                        <th className="text-end" style={{ width: "140px" }}><strong>ACTIONS</strong></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {patientConsultations.map((cs) => {
+                        const isSelected = selectedConsultation?.id === cs.id;
+                        return (
+                          <tr
+                            key={cs.id}
+                            className={isSelected ? "table-primary" : ""}
+                            style={{ cursor: "pointer" }}
                           >
-                            {cs.consultationNumber} • {cs.reason}
-                          </h6>
-                          <span className="text-muted fs-12">
-                            Date : {cs.date} à {cs.time} • Cotation :{" "}
-                            {cs.billingCode}
-                          </span>
-                        </div>
-                        <span className="patient-badge-status">
-                          <span className="patient-status-dot-pulse"></span>
-                          {cs.status}
-                        </span>
-                      </div>
-                      <div
-                        className="p-2 rounded mb-2 fs-13"
-                        style={{
-                          background: "#ffffff",
-                          border: "1px solid #e2e8f0",
-                        }}
-                      >
-                        <strong>Constantes :</strong> TA: {cs.vitals?.bp || "-"} mmHg |{" "}
-                        Pouls: {cs.vitals?.hr || cs.vitals?.heartRate || "-"} bpm | Temp:{" "}
-                        {cs.vitals?.temp || cs.vitals?.temperature || "-"}°C | Poids:{" "}
-                        {cs.vitals?.weight || "-"} kg
-                        {cs.vitals?.ddr && cs.vitals.ddr !== "-" && (
-                          <span>
-                            {" "}
-                            | DDR: {cs.vitals.ddr}{" "}
-                            {cs.vitals.terme && `(${cs.vitals.terme})`}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mb-1 fs-14">
-                        <strong>Diagnostic :</strong> {cs.diagnosis}
-                      </p>
-                      <p className="mb-2 text-muted fs-13">
-                        <strong>Observations :</strong> {cs.examFindings}
-                        {cs.recommendations ? ` — ${cs.recommendations}` : ""}
-                      </p>
-
-                      {/* ÉCHOGRAPHIE ASSOCIÉE */}
-                      {(cs.echoFindings || cs.echoType || cs.ultrasoundReport) && (
-                        <div
-                          className="p-2.5 mb-2 rounded fs-13"
-                          style={{
-                            background: "#f0fdf4",
-                            border: "1px solid #bbf7d0",
-                            color: "#166534",
-                          }}
-                        >
-                          <div className="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-1">
-                            <span className="font-w600 d-flex align-items-center gap-1">
-                              <i className="fa fa-wave-square me-1"></i>
-                              {cs.echoType || "Compte-Rendu Échographique"}
-                            </span>
-                            <div className="d-flex align-items-center gap-2">
-                              {cs.ultrasoundReport?.epf_hadlock_g && (
-                                <span className="badge bg-success text-white fs-11">
-                                  EPF (Hadlock) : {cs.ultrasoundReport.epf_hadlock_g} g
-                                </span>
-                              )}
-                              <button
-                                type="button"
-                                className="btn btn-xs btn-outline-success d-flex align-items-center gap-1"
-                                style={{ fontSize: "11px", padding: "2px 8px" }}
-                                onClick={() => setSelectedEchoConsultation(cs)}
-                                title="Aperçu du compte-rendu échographique"
-                              >
-                                <i className="fa fa-file-medical"></i>
-                                <span>Compte-rendu complet</span>
-                              </button>
-                            </div>
-                          </div>
-                          <div style={{ color: "#14532d" }}>
-                            <strong>Conclusion / Mesures : </strong>
-                            {cs.echoFindings ||
-                              cs.echoConclusion ||
-                              cs.ultrasoundReport?.findings ||
-                              "Échographie enregistrée dans le dossier."}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* ORDONNANCE ASSOCIÉE */}
-                      {(cs.prescriptionCreated || cs.prescriptionData) && (
-                        <div
-                          className="p-2 rounded fs-13 d-flex align-items-center justify-content-between flex-wrap gap-2"
-                          style={{
-                            background: "#eff6ff",
-                            border: "1px solid #bfdbfe",
-                            color: "#1e40af",
-                          }}
-                        >
-                          <div className="d-flex align-items-center gap-2">
-                            <i className="fa fa-prescription text-primary"></i>
-                            <span>
-                              <strong>Ordonnance : </strong>
-                              {cs.prescriptionData?.items && cs.prescriptionData.items.length > 0
-                                ? `${cs.prescriptionData.items.length} médicament(s) prescrit(s) (${cs.prescriptionData.items.map((i) => i.medication).slice(0, 2).join(", ")}${cs.prescriptionData.items.length > 2 ? "..." : ""})`
-                                : "Prescription médicale établie"}
-                            </span>
-                          </div>
-                          {cs.prescriptionData && (
-                            <button
-                              type="button"
-                              className="btn btn-xs btn-primary text-white d-flex align-items-center gap-1"
-                              style={{ fontSize: "11px", padding: "3px 10px" }}
-                              onClick={() => setSelectedPrescription(cs.prescriptionData)}
-                              title="Voir et imprimer l'ordonnance médicale"
-                            >
-                              <i className="fa fa-print"></i>
-                              <span>Voir l'ordonnance</span>
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
+                            <td style={{ whiteSpace: "nowrap" }} onClick={() => setSelectedConsultation(isSelected ? null : cs)}>
+                              <strong className="text-primary">{cs.date}</strong>
+                              <span className="text-muted fs-12 ms-2 d-none d-sm-inline">à {cs.time}</span>
+                              <div className="d-block d-sm-none text-muted fs-11">{cs.time}</div>
+                            </td>
+                            <td onClick={() => setSelectedConsultation(isSelected ? null : cs)}>
+                              <span className="font-w600 text-dark">{cs.reason}</span>
+                              <div className="d-block d-md-none text-muted fs-11 mt-1">{cs.diagnosis}</div>
+                            </td>
+                            <td className="d-none d-md-table-cell" onClick={() => setSelectedConsultation(isSelected ? null : cs)}>
+                              <span className="text-dark font-w500">{cs.diagnosis || "—"}</span>
+                            </td>
+                            <td className="d-none d-md-table-cell" onClick={() => setSelectedConsultation(isSelected ? null : cs)}>
+                              <span className="text-dark font-w500">{cs.billingCode || "—"}</span>
+                            </td>
+                            <td className="d-none d-sm-table-cell" onClick={() => setSelectedConsultation(isSelected ? null : cs)}>
+                              <span className="patient-badge-status" style={{ display: "inline-flex" }}>
+                                <span className="patient-status-dot-pulse"></span>
+                                {cs.status || "Clôturée"}
+                              </span>
+                            </td>
+                            <td className="text-end pe-0" style={{ whiteSpace: "nowrap" }}>
+                              <div className="d-flex justify-content-end align-items-center">
+                                <button
+                                  type="button"
+                                  className={`btn ${isSelected ? "btn-primary" : "btn-info text-white"} shadow btn-xs sharp me-1`}
+                                  onClick={() => setSelectedConsultation(isSelected ? null : cs)}
+                                  title={isSelected ? "Masquer les détails" : "Afficher les détails de la consultation"}
+                                >
+                                  <i className="fa fa-eye"></i>
+                                </button>
+                                {(cs.echoFindings || cs.echoType || cs.ultrasoundReport) && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-success shadow btn-xs sharp me-1"
+                                    onClick={() => setSelectedEchoConsultation(cs)}
+                                    title="Aperçu du compte-rendu échographique"
+                                  >
+                                    <i className="fa fa-wave-square"></i>
+                                  </button>
+                                )}
+                                {(cs.prescriptionCreated || cs.prescriptionData) && (
+                                  <button
+                                    type="button"
+                                    className="btn btn-outline-primary shadow btn-xs sharp me-1"
+                                    onClick={() => setSelectedPrescription(cs.prescriptionData)}
+                                    title="Voir l'ordonnance"
+                                  >
+                                    <i className="fa fa-prescription"></i>
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               )}
             </div>
@@ -2075,7 +2177,74 @@ const PatientDetailsCabinet = () => {
 
         {/* PANEL 4: DOCUMENTS & RÉSULTATS */}
         {activeTab === "documents" && (
-          <div className="patient-panel-card">
+          <div
+            className="patient-panel-card position-relative"
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!isDraggingDoc) setIsDraggingDoc(true);
+            }}
+            onDragEnter={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!isDraggingDoc) setIsDraggingDoc(true);
+            }}
+            onDragLeave={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (e.currentTarget.contains(e.relatedTarget)) return;
+              setIsDraggingDoc(false);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setIsDraggingDoc(false);
+              if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                processDocumentFile(e.dataTransfer.files[0]);
+              }
+            }}
+          >
+            {/* Overlay visuel lors du glisser-déposer de fichiers */}
+            {isDraggingDoc && (
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  backgroundColor: "rgba(239, 246, 255, 0.95)",
+                  backdropFilter: "blur(3px)",
+                  WebkitBackdropFilter: "blur(3px)",
+                  border: "3px dashed #2563eb",
+                  borderRadius: "14px",
+                  zIndex: 999,
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  pointerEvents: "none",
+                }}
+              >
+                <div
+                  style={{
+                    width: "65px",
+                    height: "65px",
+                    borderRadius: "50%",
+                    backgroundColor: "rgba(37, 99, 235, 0.12)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#2563eb",
+                    fontSize: "28px",
+                    marginBottom: "12px",
+                  }}
+                >
+                  <i className="fa fa-cloud-upload-alt"></i>
+                </div>
+                <h5 className="font-w700 text-primary mb-1">Déposez votre document ici</h5>
+                <p className="text-muted fs-13 mb-0">
+                  Le document sera chargé et préparé pour l'archivage dans le dossier médical
+                </p>
+              </div>
+            )}
             <div className="patient-panel-card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
               <div>
                 <h3 className="patient-panel-card-title">
@@ -2141,19 +2310,39 @@ const PatientDetailsCabinet = () => {
                       </label>
                       <div
                         style={{
-                          border: docFile ? "2px solid #86efac" : "2px dashed #cbd5e1",
+                          border: docFile ? "2px solid #86efac" : isDraggingDoc ? "2px dashed #2563eb" : "2px dashed #cbd5e1",
                           borderRadius: "12px",
-                          padding: "22px 16px",
+                          padding: "24px 16px",
                           textAlign: "center",
-                          background: docFile ? "#f0fdf4" : "#ffffff",
+                          background: isDraggingDoc ? "#eff6ff" : docFile ? "#f0fdf4" : "#ffffff",
                           cursor: "pointer",
                           transition: "all 0.2s ease",
                         }}
-                        onClick={() => document.getElementById("patientDocFileInput").click()}
+                        onClick={() => {
+                          if (patientDocFileInputRef.current) {
+                            patientDocFileInputRef.current.click();
+                          } else {
+                            document.getElementById("patientDocFileInput")?.click();
+                          }
+                        }}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          if (!isDraggingDoc) setIsDraggingDoc(true);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setIsDraggingDoc(false);
+                          if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                            processDocumentFile(e.dataTransfer.files[0]);
+                          }
+                        }}
                       >
                         <input
                           type="file"
                           id="patientDocFileInput"
+                          ref={patientDocFileInputRef}
                           accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
                           onChange={handleFileChange}
                           style={{ display: "none" }}
@@ -2232,11 +2421,11 @@ const PatientDetailsCabinet = () => {
                                   fontSize: "20px",
                                 }}
                               >
-                                <i className="fa fa-camera-retro"></i>
+                                <i className="fa fa-cloud-upload-alt"></i>
                               </span>
                             </div>
                             <p className="font-w600 text-dark mb-1 fs-14">
-                              Cliquez ici pour sélectionner une photo ou un fichier depuis votre appareil
+                              Glissez-déposez un document ici ou cliquez pour le sélectionner
                             </p>
                             <p className="text-muted fs-12 mb-0">
                               Photos (JPEG, PNG, WebP), scanners, radiographies, PDF, analyses médicales... (max 25 Mo)
@@ -2345,14 +2534,68 @@ const PatientDetailsCabinet = () => {
                 <tbody>
                   {patientDocuments.length === 0 ? (
                     <tr>
-                      <td colSpan="5" className="text-center py-5 text-muted">
-                        <i className="fa fa-folder-open fs-28 d-block mb-2 text-muted"></i>
-                        Aucun document rattaché à ce dossier pour le moment.
-                        <div className="mt-2">
+                      <td colSpan="5" className="text-center py-5">
+                        <div
+                          style={{
+                            border: "2px dashed #cbd5e1",
+                            borderRadius: "14px",
+                            padding: "36px 20px",
+                            background: "#f8fafc",
+                            cursor: "pointer",
+                            maxWidth: "520px",
+                            margin: "0 auto",
+                            transition: "all 0.2s ease",
+                          }}
+                          onClick={() => {
+                            setShowAddDocForm(true);
+                            setTimeout(() => {
+                              if (patientDocFileInputRef.current) patientDocFileInputRef.current.click();
+                            }, 100);
+                          }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            if (!isDraggingDoc) setIsDraggingDoc(true);
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setIsDraggingDoc(false);
+                            if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                              processDocumentFile(e.dataTransfer.files[0]);
+                            }
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: "56px",
+                              height: "56px",
+                              borderRadius: "50%",
+                              background: "#eff6ff",
+                              color: "#2563eb",
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              fontSize: "24px",
+                              marginBottom: "12px",
+                            }}
+                          >
+                            <i className="fa fa-cloud-upload-alt"></i>
+                          </div>
+                          <h5 className="font-w700 text-dark mb-1 fs-15">
+                            Glissez-déposez vos documents ici
+                          </h5>
+                          <p className="text-muted fs-12 mb-3">
+                            Comptes rendus, imageries médicales, bilans d'analyses, ordonnances externes (PDF, JPG, PNG, DOCX...)
+                          </p>
                           <button
                             type="button"
-                            className="btn btn-primary btn-sm"
-                            onClick={() => setShowAddDocForm(true)}
+                            className="btn btn-primary btn-sm px-3 py-2 font-w600"
+                            style={{ borderRadius: "8px" }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowAddDocForm(true);
+                            }}
                           >
                             <i className="fa fa-plus me-1"></i> Importer le premier document
                           </button>

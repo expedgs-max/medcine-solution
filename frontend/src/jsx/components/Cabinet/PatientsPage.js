@@ -37,6 +37,7 @@ const PatientsPage = () => {
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState(null);
   const [formData, setFormData] = useState({
+    fullName: "",
     firstName: "",
     lastName: "",
     dob: "",
@@ -79,6 +80,7 @@ const PatientsPage = () => {
   const handleOpenAdd = () => {
     setEditId(null);
     setFormData({
+      fullName: "",
       firstName: "",
       lastName: "",
       dob: "1990-01-01",
@@ -102,7 +104,9 @@ const PatientsPage = () => {
 
   const handleOpenEdit = (p) => {
     setEditId(p.id);
+    const full = `${(p.lastName || "").toUpperCase()} ${p.firstName || ""}`.trim();
     setFormData({
+      fullName: full,
       firstName: p.firstName || "",
       lastName: p.lastName || "",
       dob: p.dob || "",
@@ -122,6 +126,26 @@ const PatientsPage = () => {
       const el = document.getElementById("patient-form-card");
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
+  };
+
+  const handleFullNameChange = (val) => {
+    const raw = (val || "").trim();
+    const parts = raw.split(/\s+/);
+    const lastName = parts[0] ? parts[0].toUpperCase() : "";
+    const firstName = parts.length > 1 ? parts.slice(1).join(" ") : "";
+
+    setFormData((prev) => {
+      const autoPass = !prev.customPassword
+        ? generatePatientPassword(lastName, firstName, prev.phone)
+        : prev.password;
+      return {
+        ...prev,
+        fullName: val,
+        lastName,
+        firstName,
+        password: autoPass,
+      };
+    });
   };
 
   const handleNameOrPhoneChange = (field, val) => {
@@ -150,13 +174,18 @@ const PatientsPage = () => {
         ? formData.chronicDiseases.split(",").map((s) => s.trim()).filter(Boolean)
         : [];
 
-      const patientPass = formData.password || generatePatientPassword(formData.lastName, formData.firstName, formData.phone);
+      const rawFull = (formData.fullName || `${formData.lastName || ""} ${formData.firstName || ""}`).trim();
+      const parts = rawFull.split(/\s+/);
+      const lastName = parts[0] ? parts[0].toUpperCase() : (formData.lastName ? formData.lastName.toUpperCase() : "PATIENT");
+      const firstName = parts.length > 1 ? parts.slice(1).join(" ") : (formData.firstName ? formData.firstName.trim() : "");
+
+      const patientPass = formData.password || generatePatientPassword(lastName, firstName, formData.phone);
 
       if (editId) {
         await ApiService.updatePatient({
           id: editId,
-          firstName: formData.firstName.trim(),
-          lastName: formData.lastName.trim(),
+          firstName: firstName,
+          lastName: lastName,
           dob: formData.dob,
           gender: formData.gender,
           phone: formData.phone,
@@ -180,8 +209,8 @@ const PatientsPage = () => {
         });
       } else {
         await ApiService.createPatient({
-          firstName: formData.firstName.trim(),
-          lastName: formData.lastName.trim(),
+          firstName: firstName,
+          lastName: lastName,
           dob: formData.dob,
           gender: formData.gender,
           phone: formData.phone,
@@ -206,7 +235,7 @@ const PatientsPage = () => {
                 <i class="fa fa-key me-1"></i> Accès Portail Patient Généré :
               </div>
               <div style="font-size: 14px; color: #1e293b;">
-                • Patient : <strong>${formData.lastName.toUpperCase()} ${formData.firstName}</strong><br/>
+                • Patient : <strong>${lastName.toUpperCase()} ${firstName}</strong><br/>
                 • Mot de passe généré : <strong style="font-size: 20px; color: #0284c7; letter-spacing: 1.5px; font-family: monospace;">${patientPass}</strong>
               </div>
               <small class="text-muted d-block mt-2">
@@ -331,23 +360,16 @@ const PatientsPage = () => {
                 Informations Administratives
               </h6>
               <div className="row">
-                <div className="col-md-6 mb-3">
-                  <label className="form-label">Nom de famille *</label>
+                <div className="col-12 mb-3">
+                  <label className="form-label font-w600">
+                    Nom et Prénom <span className="text-danger">*</span>
+                  </label>
                   <input
                     type="text"
                     className="form-control"
-                    value={formData.lastName}
-                    onChange={(e) => handleNameOrPhoneChange("lastName", e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="col-md-6 mb-3">
-                  <label className="form-label">Prénom *</label>
-                  <input
-                    type="text"
-                    className="form-control"
-                    value={formData.firstName}
-                    onChange={(e) => handleNameOrPhoneChange("firstName", e.target.value)}
+                    placeholder="Ex: BENALI Amina ou Mohamed Guedaoui..."
+                    value={formData.fullName !== undefined ? formData.fullName : `${formData.lastName || ""} ${formData.firstName || ""}`.trim()}
+                    onChange={(e) => handleFullNameChange(e.target.value)}
                     required
                   />
                 </div>
@@ -443,7 +465,10 @@ const PatientsPage = () => {
                       type="button"
                       className="btn btn-outline-primary"
                       onClick={() => {
-                        const auto = generatePatientPassword(formData.lastName, formData.firstName, formData.phone);
+                        const parts = (formData.fullName || "").trim().split(/\s+/);
+                        const l = parts[0] || formData.lastName;
+                        const f = parts.length > 1 ? parts.slice(1).join(" ") : formData.firstName;
+                        const auto = generatePatientPassword(l, f, formData.phone);
                         setFormData({ ...formData, password: auto, customPassword: false });
                       }}
                       title="Régénérer automatiquement selon Nom, Prénom et Téléphone"
