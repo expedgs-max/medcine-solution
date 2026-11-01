@@ -228,11 +228,11 @@ const Header = ({ onNote }) => {
               )}
               
 
-              <Dropdown as="li" className="nav-item dropdown header-profile d-flex align-items-center me-1 me-sm-2">
+              <Dropdown as="li" className="nav-item dropdown header-profile d-flex align-items-center pe-2">
                 <Dropdown.Toggle
                   as={Link}
                   variant=""
-                  className="nav-link i-false d-flex align-items-center text-decoration-none"
+                  className="nav-link i-false d-flex align-items-center text-decoration-none p-0"
                   to="#"                  
                 >
 
@@ -242,6 +242,8 @@ const Header = ({ onNote }) => {
                       width: "38px",
                       height: "38px",
                       minWidth: "38px",
+                      maxWidth: "38px",
+                      flexShrink: 0,
                       background: "linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)",
                       color: "#1d4ed8",
                       fontWeight: 700,
