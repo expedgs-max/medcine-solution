@@ -12,6 +12,7 @@ import {
 
 
 
+  Camera,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
@@ -586,6 +587,104 @@ export default function PatientPortal() {
     }
   });
 
+  const profilePhotoInputRef = useRef(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoFeedback, setPhotoFeedback] = useState("");
+  const [guestPhoto, setGuestPhoto] = useState(() => {
+    try {
+      return localStorage.getItem("cabinet_patient_guest_photo") || "";
+    } catch (e) {
+      return "";
+    }
+  });
+
+  const displayPhoto = authenticatedPatient?.photo || guestPhoto;
+
+  const handleProfilePhotoClick = () => {
+    if (profilePhotoInputRef.current) {
+      profilePhotoInputRef.current.click();
+    }
+  };
+
+  const handleProfilePhotoChange = async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) {
+      alert("Veuillez sélectionner un fichier image valide (JPG, PNG, WEBP, etc.).");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      alert("L'image est trop volumineuse (taille maximale : 5 Mo).");
+      return;
+    }
+
+    try {
+      setUploadingPhoto(true);
+      setPhotoFeedback("");
+
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64Data = reader.result;
+
+        setGuestPhoto(base64Data);
+        try {
+          localStorage.setItem("cabinet_patient_guest_photo", base64Data);
+        } catch (err) {}
+
+        if (authenticatedPatient && authenticatedPatient.id) {
+          try {
+            const resp = await fetch(getApiUrl("patients.php?action=upload_photo"), {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                id: authenticatedPatient.id,
+                photo: base64Data,
+              }),
+            });
+
+            const json = await resp.json();
+            if (json.status === "success" && json.data?.photo) {
+              const updated = {
+                ...authenticatedPatient,
+                photo: json.data.photo,
+              };
+              setAuthenticatedPatient(updated);
+              localStorage.setItem("cabinet_patient_auth", JSON.stringify(updated));
+              setPhotoFeedback("Photo de profil mise à jour et enregistrée !");
+              setTimeout(() => setPhotoFeedback(""), 3500);
+            } else {
+              alert(json.message || "Erreur lors de l'enregistrement de la photo");
+            }
+          } catch (err) {
+            console.error("Erreur upload photo:", err);
+            alert("Erreur de connexion au serveur lors de l'enregistrement de la photo.");
+          } finally {
+            setUploadingPhoto(false);
+            if (e.target) e.target.value = "";
+          }
+        } else {
+          setUploadingPhoto(false);
+          setPhotoFeedback("Photo de profil sélectionnée ! Connectez-vous ci-dessous pour l'associer à votre dossier.");
+          setTimeout(() => setPhotoFeedback(""), 4500);
+          if (e.target) e.target.value = "";
+        }
+      };
+
+      reader.onerror = () => {
+        setUploadingPhoto(false);
+        alert("Erreur lors de la lecture du fichier image.");
+      };
+
+      reader.readAsDataURL(file);
+    } catch (err) {
+      setUploadingPhoto(false);
+      console.error(err);
+    }
+  };
+
   const [patientName, setPatientName] = useState(() => {
     try {
       const auth = JSON.parse(localStorage.getItem("cabinet_patient_auth") || "null");
@@ -877,8 +976,22 @@ export default function PatientPortal() {
   useEffect(() => {
     if (authenticatedPatient && authenticatedPatient.id) {
       loadPatientMedicalData(authenticatedPatient);
+      // Synchroniser la photo du patient depuis MySQL si non présente dans le cache local
+      if (!authenticatedPatient.photo) {
+        fetch(getApiUrl(`patients.php?id=${authenticatedPatient.id}`))
+          .then((res) => res.json())
+          .then((json) => {
+            const freshPatient = json?.data && json.data[0];
+            if (freshPatient?.photo) {
+              const updated = { ...authenticatedPatient, photo: freshPatient.photo };
+              setAuthenticatedPatient(updated);
+              localStorage.setItem("cabinet_patient_auth", JSON.stringify(updated));
+            }
+          })
+          .catch(() => {});
+      }
     }
-  }, [authenticatedPatient]);
+  }, [authenticatedPatient?.id]);
 
   // Création du PDF d'ordonnance
   const createPrescriptionPdf = (presc) => {
@@ -1600,6 +1713,26 @@ export default function PatientPortal() {
         }
         localStorage.setItem("cabinet_patient_auth", JSON.stringify(matched));
         setAuthSuccess(`Bienvenue ${fullName} ! Vous êtes connecté(e) à votre dossier.`);
+
+        // Synchroniser automatiquement la photo choisie vers MySQL lors de la connexion
+        const pendingPhoto = guestPhoto || localStorage.getItem("cabinet_patient_guest_photo");
+        if (pendingPhoto) {
+          try {
+            const upResp = await fetch(getApiUrl("patients.php?action=upload_photo"), {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: matched.id, photo: pendingPhoto }),
+            });
+            const upJson = await upResp.json();
+            if (upJson.status === "success" && upJson.data?.photo) {
+              matched.photo = upJson.data.photo;
+              setAuthenticatedPatient({ ...matched });
+              localStorage.setItem("cabinet_patient_auth", JSON.stringify(matched));
+              localStorage.removeItem("cabinet_patient_guest_photo");
+              setGuestPhoto("");
+            }
+          } catch (e) {}
+        }
 
         // Charger factures, ordonnances et échographies
         loadPatientMedicalData(matched);
@@ -2745,139 +2878,260 @@ export default function PatientPortal() {
                 marginBottom: "18px",
                 display: "flex",
                 alignItems: "center",
-                gap: "14px",
+                justifyContent: "space-between",
+                gap: "12px",
                 border: authenticatedPatient ? "1px solid rgba(2, 132, 199, 0.35)" : "1px solid var(--border-subtle)",
               }}
             >
-              <div
-                style={{
-                  width: "52px",
-                  height: "52px",
-                  borderRadius: "50%",
-                  background: authenticatedPatient
-                    ? "linear-gradient(135deg, rgba(2, 132, 199, 0.15), rgba(14, 165, 233, 0.1))"
-                    : "#f1f5f9",
-                  border: authenticatedPatient ? "2px solid var(--accent-mint)" : "1px solid rgba(2, 132, 199, 0.2)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "var(--accent-mint)",
-                  flexShrink: 0,
-                }}
-              >
-                <User size={26} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "16px", fontWeight: "700", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {authenticatedPatient
-                    ? `${authenticatedPatient.firstName} ${authenticatedPatient.lastName}`
-                    : (patientName.trim() || "Patient(e)")}
-                </div>
-                {authenticatedPatient ? (
-                  <div style={{ fontSize: "11.5px", color: "var(--accent-mint)", marginTop: "2px" }}>
-                    Dossier : <strong>{authenticatedPatient.fileNumber}</strong> • Tél : {authenticatedPatient.phone}
-                  </div>
-                ) : (
-                  <div style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: "2px" }}>
-                    Connectez-vous avec votre numéro et mot de passe
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Formulaire de Connexion : Numéro de Téléphone et Mot de passe */}
-            <div className="glass-panel" style={{ padding: "18px 16px", marginBottom: "18px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
-                <div style={{ fontSize: "13.5px", fontWeight: "700", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "7px" }}>
-                  <Key size={16} color="var(--accent-mint)" />
-                  <span>Mes Identifiants (Téléphone & Mot de Passe)</span>
-                </div>
-                {authenticatedPatient && (
-                  <span style={{ fontSize: "11px", fontWeight: "700", color: "var(--accent-mint)", background: "rgba(187, 247, 208, 0.15)", padding: "2px 8px", borderRadius: "12px", border: "1px solid rgba(187, 247, 208, 0.3)" }}>
-                    ✓ Connecté(e)
-                  </span>
-                )}
-              </div>
-
-              <form onSubmit={handlePatientLogin} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                <div>
-                  <label style={{ fontSize: "11.5px", color: "var(--text-secondary)", display: "block", marginBottom: "5px", fontWeight: "600" }}>
-                    Numéro de Téléphone *
-                  </label>
-                  <div style={{ position: "relative" }}>
-                    <input
-                      type="tel"
-                      className="glass-input"
-                      placeholder="Numéro de téléphone"
-                      value={patientPhone}
-                      onChange={(e) => {
-                        setPatientPhone(e.target.value);
-                        setAuthError("");
+              <div style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0, flex: 1 }}>
+                <div
+                  onClick={handleProfilePhotoClick}
+                  style={{
+                    position: "relative",
+                    width: "56px",
+                    height: "56px",
+                    borderRadius: "50%",
+                    background: "linear-gradient(135deg, rgba(2, 132, 199, 0.15), rgba(14, 165, 233, 0.1))",
+                    border: (authenticatedPatient || displayPhoto) ? "2.5px solid var(--accent-mint)" : "1.5px solid rgba(2, 132, 199, 0.35)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--accent-mint)",
+                    flexShrink: 0,
+                    cursor: "pointer",
+                    overflow: "hidden",
+                    boxShadow: "0 2px 10px rgba(16, 185, 129, 0.2)",
+                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = "scale(1.06)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "scale(1)";
+                  }}
+                  title="Cliquer pour changer votre photo de profil"
+                >
+                  {displayPhoto ? (
+                    <img
+                      src={displayPhoto}
+                      alt={patientName || "Photo de profil"}
+                      style={{
+                        width: "100%",
+                        height: "100%",
+                        objectFit: "cover",
+                        borderRadius: "50%",
                       }}
-                      style={{ padding: "11px 12px 11px 36px", fontSize: "13.5px" }}
-                      required
                     />
-                    <Phone size={15} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
-                  </div>
-                </div>
+                  ) : (
+                    <User size={28} />
+                  )}
 
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
-                    <label style={{ fontSize: "11.5px", color: "var(--text-secondary)", margin: 0, fontWeight: "600" }}>
-                      Mot de passe *
-                    </label>
-                    <span style={{ fontSize: "10.5px", color: "var(--accent-mint)" }}>
-                      Sur votre ticket de caisse
-                    </span>
-                  </div>
-                  <div style={{ position: "relative" }}>
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      className="glass-input"
-                      placeholder="Mot de passe"
-                      value={patientPassword}
-                      onChange={(e) => {
-                        setPatientPassword(e.target.value);
-                        setAuthError("");
-                      }}
-                      style={{ padding: "11px 40px 11px 36px", fontSize: "13.5px", letterSpacing: showPassword ? "0.5px" : "2px" }}
-                      required
-                    />
-                    <Lock size={15} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
+                  {/* Overlay pendant chargement */}
+                  {uploadingPhoto && (
+                    <div
                       style={{
                         position: "absolute",
-                        right: "10px",
-                        top: "50%",
-                        transform: "translateY(-50%)",
-                        background: "transparent",
-                        border: "none",
-                        color: "var(--text-muted)",
-                        cursor: "pointer",
-                        padding: "4px",
+                        inset: 0,
+                        background: "rgba(0, 0, 0, 0.6)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        borderRadius: "50%",
                       }}
-                      title={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
                     >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
+                      <div className="spinner-border spinner-border-sm text-white" role="status" style={{ width: "16px", height: "16px" }}></div>
+                    </div>
+                  )}
+
+                  {/* Badge appareil photo pour modifier */}
+                  {!uploadingPhoto && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        background: "rgba(15, 23, 42, 0.65)",
+                        backdropFilter: "blur(2px)",
+                        height: "18px",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        color: "#ffffff",
+                      }}
+                      title="Changer la photo de profil"
+                    >
+                      <Camera size={11} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Input fichier masque pour changer la photo */}
+                <input
+                  type="file"
+                  ref={profilePhotoInputRef}
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={handleProfilePhotoChange}
+                />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "16px", fontWeight: "700", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {authenticatedPatient
+                      ? `${authenticatedPatient.firstName} ${authenticatedPatient.lastName}`
+                      : (patientName.trim() || "Patient(e)")}
+                  </div>
+                  {authenticatedPatient ? (
+                    <>
+                      <div style={{ fontSize: "11.5px", color: "var(--accent-mint)", marginTop: "2px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        Dossier : <strong>{authenticatedPatient.fileNumber}</strong> • Tél : {authenticatedPatient.phone}
+                      </div>
+                      {photoFeedback && (
+                        <div style={{ fontSize: "11px", color: "#059669", fontWeight: "600", marginTop: "3px" }}>
+                          <CheckCircle2 size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />
+                          {photoFeedback}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: "11.5px", color: "var(--text-muted)", marginTop: "2px" }}>
+                        Connectez-vous avec votre numéro et mot de passe
+                      </div>
+                      {photoFeedback && (
+                        <div style={{ fontSize: "11px", color: "#059669", fontWeight: "600", marginTop: "3px" }}>
+                          <CheckCircle2 size={12} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />
+                          {photoFeedback}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Bouton de deconnexion place sur la carte profil a droite */}
+              {authenticatedPatient && (
+                <button
+                  type="button"
+                  onClick={handlePatientLogout}
+                  style={{
+                    background: "rgba(239, 68, 68, 0.12)",
+                    border: "1px solid rgba(239, 68, 68, 0.35)",
+                    color: "#ef4444",
+                    borderRadius: "10px",
+                    padding: "8px 14px",
+                    fontSize: "12.5px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    flexShrink: 0,
+                    transition: "all 0.2s ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(239, 68, 68, 0.22)";
+                    e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.5)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(239, 68, 68, 0.12)";
+                    e.currentTarget.style.borderColor = "rgba(239, 68, 68, 0.35)";
+                  }}
+                  title="Se déconnecter de mon espace patient"
+                >
+                  <LogOut size={15} />
+                  <span>Déconnexion</span>
+                </button>
+              )}
+            </div>
+
+            {/* Formulaire de Connexion : Masque automatiquement quand le patient est connecte */}
+            {!authenticatedPatient && (
+              <div className="glass-panel" style={{ padding: "18px 16px", marginBottom: "18px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                  <div style={{ fontSize: "13.5px", fontWeight: "700", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "7px" }}>
+                    <Key size={16} color="var(--accent-mint)" />
+                    <span>Mes Identifiants (Téléphone & Mot de Passe)</span>
                   </div>
                 </div>
 
-                {authError && (
-                  <div style={{ fontSize: "11.5px", color: "#dc2626", fontWeight: "600", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", padding: "8px 10px" }}>
-                    {authError}
+                <form onSubmit={handlePatientLogin} style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <div>
+                    <label style={{ fontSize: "11.5px", color: "var(--text-secondary)", display: "block", marginBottom: "5px", fontWeight: "600" }}>
+                      Numéro de Téléphone *
+                    </label>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type="tel"
+                        className="glass-input"
+                        placeholder="Numéro de téléphone"
+                        value={patientPhone}
+                        onChange={(e) => {
+                          setPatientPhone(e.target.value);
+                          setAuthError("");
+                        }}
+                        style={{ padding: "11px 12px 11px 36px", fontSize: "13.5px" }}
+                        required
+                      />
+                      <Phone size={15} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
+                    </div>
                   </div>
-                )}
 
-                {authSuccess && (
-                  <div style={{ fontSize: "11.5px", color: "#059669", fontWeight: "600", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: "8px", padding: "8px 10px" }}>
-                    {authSuccess}
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "5px" }}>
+                      <label style={{ fontSize: "11.5px", color: "var(--text-secondary)", margin: 0, fontWeight: "600" }}>
+                        Mot de passe *
+                      </label>
+                      <span style={{ fontSize: "10.5px", color: "var(--accent-mint)" }}>
+                        Sur votre ticket de caisse
+                      </span>
+                    </div>
+                    <div style={{ position: "relative" }}>
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        className="glass-input"
+                        placeholder="Mot de passe"
+                        value={patientPassword}
+                        onChange={(e) => {
+                          setPatientPassword(e.target.value);
+                          setAuthError("");
+                        }}
+                        style={{ padding: "11px 40px 11px 36px", fontSize: "13.5px", letterSpacing: showPassword ? "0.5px" : "2px" }}
+                        required
+                      />
+                      <Lock size={15} color="var(--text-muted)" style={{ position: "absolute", left: "12px", top: "50%", transform: "translateY(-50%)" }} />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        style={{
+                          position: "absolute",
+                          right: "10px",
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          padding: "4px",
+                        }}
+                        title={showPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </div>
                   </div>
-                )}
 
-                {!authenticatedPatient ? (
+                  {authError && (
+                    <div style={{ fontSize: "11.5px", color: "#dc2626", fontWeight: "600", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: "8px", padding: "8px 10px" }}>
+                      {authError}
+                    </div>
+                  )}
+
+                  {authSuccess && (
+                    <div style={{ fontSize: "11.5px", color: "#059669", fontWeight: "600", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: "8px", padding: "8px 10px" }}>
+                      {authSuccess}
+                    </div>
+                  )}
+
                   <button
                     type="submit"
                     disabled={authLoading}
@@ -2887,41 +3141,9 @@ export default function PatientPortal() {
                     <LogIn size={15} />
                     <span>{authLoading ? "Connexion en cours..." : "Se connecter & Accéder à mon dossier"}</span>
                   </button>
-                ) : (
-                  <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                    <button
-                      type="submit"
-                      disabled={authLoading}
-                      className="btn-primary-mint"
-                      style={{ flex: 1, padding: "10px 14px", fontSize: "12.5px" }}
-                    >
-                      <CheckCircle2 size={15} />
-                      <span>{authLoading ? "Actualisation..." : "Actualiser mes RDV"}</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handlePatientLogout}
-                      style={{
-                        background: "rgba(239, 68, 68, 0.15)",
-                        border: "1px solid rgba(239, 68, 68, 0.35)",
-                        color: "#f87171",
-                        borderRadius: "10px",
-                        padding: "10px 14px",
-                        fontSize: "12.5px",
-                        fontWeight: "600",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                      }}
-                    >
-                      <LogOut size={15} />
-                      <span>Déconnexion</span>
-                    </button>
-                  </div>
-                )}
-              </form>
-            </div>
+                </form>
+              </div>
+            )}
 
             {/* Conteneur Cartes Médicales & Rendez-vous (Wishlist Glass Panel) */}
             <div
@@ -3835,7 +4057,21 @@ export default function PatientPortal() {
           }}
           title="Profil & Mes Rendez-vous"
         >
-          <User size={19} />
+          {displayPhoto ? (
+            <img
+              src={displayPhoto}
+              alt="Profil"
+              style={{
+                width: "20px",
+                height: "20px",
+                borderRadius: "50%",
+                objectFit: "cover",
+                border: "1.5px solid var(--accent-mint)",
+              }}
+            />
+          ) : (
+            <User size={19} />
+          )}
           <span>Profil</span>
         </button>
 

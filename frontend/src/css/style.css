@@ -33849,7 +33849,7 @@ input[type=number] {
   .table-responsive-lg,
   table.table-responsive-md,
   .table-responsive table {
-    min-width: 0 !important;
+    min-width: max-content;
     max-width: none !important;
   }
 

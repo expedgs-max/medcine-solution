@@ -572,6 +572,7 @@ CREATE TABLE `patients` (
   `address` text DEFAULT NULL,
   `secu_number` varchar(50) DEFAULT NULL,
   `blood_group` varchar(10) DEFAULT NULL,
+  `photo` longtext DEFAULT NULL,
   `gravida` int(11) DEFAULT 0 COMMENT 'Nombre de grossesses (G)',
   `para` int(11) DEFAULT 0 COMMENT 'Nombre d''accouchements (P)',
   `abortions` int(11) DEFAULT 0 COMMENT 'Nombre de fausses couches ou IVG (A)',

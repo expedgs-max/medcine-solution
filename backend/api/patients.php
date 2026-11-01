@@ -12,7 +12,16 @@ switch ($method) {
         handleGetPatients($db);
         break;
     case 'POST':
-        handleCreatePatient($db);
+        if ((isset($_GET['action']) && $_GET['action'] === 'upload_photo')) {
+            handleUploadPatientPhoto($db);
+        } else {
+            $rawPost = getRequestBody();
+            if (isset($rawPost['action']) && $rawPost['action'] === 'upload_photo') {
+                handleUploadPatientPhoto($db);
+            } else {
+                handleCreatePatient($db);
+            }
+        }
         break;
     case 'PUT':
         handleUpdatePatient($db);
@@ -43,6 +52,83 @@ function generatePatientPassword($lastName, $firstName, $phone) {
     $last3 = strlen($digits) >= 3 ? substr($digits, -3) : str_pad($digits, 3, '0', STR_PAD_LEFT);
 
     return strtolower($lastInitial . $firstInitial . $last3);
+}
+
+function formatPhotoUrl($rawPhoto) {
+    if (empty($rawPhoto)) return null;
+    if (str_starts_with($rawPhoto, 'data:') || str_starts_with($rawPhoto, 'http://') || str_starts_with($rawPhoto, 'https://')) {
+        return $rawPhoto;
+    }
+    $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'] ?? '127.0.0.1:8000';
+    $baseUrl = $scheme . '://' . $host;
+    return $baseUrl . '/' . ltrim($rawPhoto, '/');
+}
+
+function handleUploadPatientPhoto($db) {
+    $body = getRequestBody();
+    $patientId = isset($_POST['id']) ? intval($_POST['id']) : (isset($body['id']) ? intval($body['id']) : (isset($_GET['id']) ? intval($_GET['id']) : null));
+
+    if (!$patientId) {
+        sendResponse("error", null, "ID patient manquant", 400);
+    }
+
+    $photoValue = null;
+
+    if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
+        $uploadDir = __DIR__ . '/../uploads/avatars/';
+        if (!is_dir($uploadDir)) {
+            @mkdir($uploadDir, 0777, true);
+        }
+        $ext = strtolower(pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION)) ?: 'jpg';
+        $filename = 'patient_' . $patientId . '_' . time() . '.' . $ext;
+        $destPath = $uploadDir . $filename;
+        if (move_uploaded_file($_FILES['photo']['tmp_name'], $destPath)) {
+            $photoValue = 'uploads/avatars/' . $filename;
+        }
+    } elseif (!empty($body['photo']) || !empty($_POST['photo'])) {
+        $dataUrl = !empty($body['photo']) ? $body['photo'] : $_POST['photo'];
+        if (preg_match('/^data:image\/(\w+);base64,/', $dataUrl, $type)) {
+            $uploadDir = __DIR__ . '/../uploads/avatars/';
+            if (!is_dir($uploadDir)) {
+                @mkdir($uploadDir, 0777, true);
+            }
+            $ext = strtolower($type[1]);
+            if ($ext === 'jpeg') $ext = 'jpg';
+            $data = substr($dataUrl, strpos($dataUrl, ',') + 1);
+            $decoded = base64_decode($data);
+            if ($decoded !== false) {
+                $filename = 'patient_' . $patientId . '_' . time() . '.' . $ext;
+                $destPath = $uploadDir . $filename;
+                if (@file_put_contents($destPath, $decoded)) {
+                    $photoValue = 'uploads/avatars/' . $filename;
+                } else {
+                    $photoValue = $dataUrl;
+                }
+            } else {
+                $photoValue = $dataUrl;
+            }
+        } else {
+            $photoValue = $dataUrl;
+        }
+    }
+
+    if ($photoValue === null) {
+        sendResponse("error", null, "Aucune photo fournie", 400);
+    }
+
+    try {
+        $stmt = $db->prepare("UPDATE patients SET photo = :photo WHERE id = :id");
+        $stmt->execute([':photo' => $photoValue, ':id' => $patientId]);
+
+        $formattedUrl = formatPhotoUrl($photoValue);
+        sendResponse("success", [
+            "id" => $patientId,
+            "photo" => $formattedUrl
+        ], "Photo de profil mise à jour avec succès");
+    } catch (Exception $e) {
+        sendResponse("error", null, "Erreur enregistrement photo : " . $e->getMessage(), 500);
+    }
 }
 
 function handleGetPatients($db) {
@@ -138,6 +224,7 @@ function handleGetPatients($db) {
                 "livingChildren" => intval($r['living_children'] ?? 0),
                 "lastVisit" => $latestVisit,
                 "consultationsCount" => $consultationsCount,
+                "photo" => formatPhotoUrl($r['photo'] ?? null),
                 "status" => $r['status']
             ];
         }
@@ -268,6 +355,9 @@ function handleUpdatePatient($db) {
         $pwd = !empty($body['password']) ? trim($body['password']) : null;
         $pwdSql = $pwd ? ", password = :pwd" : "";
 
+        $hasPhoto = array_key_exists('photo', $body);
+        $photoSql = $hasPhoto ? ", photo = :photo" : "";
+
         $sql = "UPDATE patients SET 
                     first_name = :fname,
                     last_name = :lname,
@@ -280,6 +370,7 @@ function handleUpdatePatient($db) {
                     secu_number = :secu,
                     blood_group = :bg
                     $pwdSql
+                    $photoSql
                 WHERE id = :id";
         $stmt = $db->prepare($sql);
         $params = [
@@ -297,6 +388,9 @@ function handleUpdatePatient($db) {
         ];
         if ($pwd) {
             $params[':pwd'] = $pwd;
+        }
+        if ($hasPhoto) {
+            $params[':photo'] = $body['photo'] ?: null;
         }
         $stmt->execute($params);
 
