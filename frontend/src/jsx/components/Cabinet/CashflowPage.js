@@ -601,18 +601,25 @@ const CashflowPage = () => {
 
               {/* Contenu Tableau */}
               <div className="card-body p-0">
+                {/* Indicateur de defilement horizontal sur telephone */}
+                <div className="d-flex align-items-center justify-content-between p-2 d-md-none text-muted fs-11 border-bottom bg-light">
+                  <span><i className="fa fa-list me-1 text-primary"></i>{filteredEntries.length} écriture{filteredEntries.length > 1 ? 's' : ''}</span>
+                  <span className="badge badge-sm badge-light text-primary border d-flex align-items-center gap-1 py-1 px-2">
+                    <i className="fa fa-arrows-h"></i> Glisser droite / gauche (prix & actions)
+                  </span>
+                </div>
                 <div className="table-responsive">
-                  <table className="table table-hover align-middle mb-0">
+                  <table className="table table-hover align-middle mb-0" style={{ width: "100%", minWidth: "540px" }}>
                     <thead className="table-light text-muted fs-11 text-uppercase">
                       <tr>
-                        <th style={{ width: "95px" }} className="ps-2 ps-md-4">TYPE</th>
+                        <th style={{ minWidth: "105px", width: "105px" }} className="ps-2 ps-md-4">TYPE</th>
                         <th className="d-none d-md-table-cell">N° COMMANDE / RÉF</th>
-                        <th>CLIENT / FOURNISSEUR</th>
+                        <th style={{ minWidth: "160px" }}>CLIENT / FOURNISSEUR</th>
                         <th className="d-none d-md-table-cell">CATÉGORIE</th>
                         <th className="d-none d-md-table-cell">NOTE / MOTIF</th>
-                        <th className="text-end">MONTANT</th>
+                        <th className="text-end" style={{ minWidth: "135px" }}>MONTANT</th>
                         <th className="text-center d-none d-md-table-cell">DATE</th>
-                        <th className="text-end pe-2 pe-md-4" style={{ width: "90px" }}>ACTIONS</th>
+                        <th className="text-end pe-3 pe-md-4" style={{ minWidth: "95px", width: "95px" }}>ACTIONS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -705,7 +712,7 @@ const CashflowPage = () => {
                               </td>
 
                               {/* MONTANT TOTAL */}
-                              <td className="text-end">
+                              <td className="text-end" style={{ minWidth: "135px", whiteSpace: "nowrap" }}>
                                 <div
                                   className="font-w800 fs-13 fs-md-14"
                                   style={{ color: isRecette ? "#10b981" : "#ef4444" }}
@@ -724,7 +731,7 @@ const CashflowPage = () => {
                               </td>
 
                               {/* ACTIONS */}
-                              <td className="text-end pe-2 pe-md-4" style={{ width: "90px", whiteSpace: "nowrap" }}>
+                              <td className="text-end pe-3 pe-md-4" style={{ minWidth: "95px", width: "95px", whiteSpace: "nowrap" }}>
                                 <div className="d-flex justify-content-end gap-1">
                                   {row.attachmentPath && (
                                     <button

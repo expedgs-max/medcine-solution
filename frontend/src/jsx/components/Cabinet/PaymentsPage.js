@@ -262,19 +262,26 @@ const PaymentsPage = () => {
           </div>
         </div>
         <div className="card-body">
+          {/* Indicateur de defilement horizontal sur telephone */}
+          <div className="d-flex align-items-center justify-content-between mb-2 d-md-none text-muted fs-11 px-1">
+            <span><i className="fa fa-list me-1 text-primary"></i>{filteredPayments.length} encaissement{filteredPayments.length > 1 ? 's' : ''}</span>
+            <span className="badge badge-sm badge-light text-primary border d-flex align-items-center gap-1 py-1 px-2">
+              <i className="fa fa-arrows-h"></i> Glisser droite / gauche (prix & actions)
+            </span>
+          </div>
           <div className="table-responsive">
-            <table className="table table-hover">
+            <table className="table table-hover" style={{ width: "100%", minWidth: "560px" }}>
               <thead>
                 <tr>
                   <th className="d-none d-md-table-cell"><strong>N° REÇU</strong></th>
-                  <th><strong>DATE & HEURE</strong></th>
-                  <th><strong>PATIENT</strong></th>
+                  <th style={{ minWidth: "110px" }}><strong>DATE & HEURE</strong></th>
+                  <th style={{ minWidth: "150px" }}><strong>PATIENT</strong></th>
                   <th className="d-none d-md-table-cell"><strong>RÉF. FACTURE</strong></th>
-                  <th><strong>MONTANT</strong></th>
+                  <th className="text-end" style={{ minWidth: "120px" }}><strong>MONTANT</strong></th>
                   <th className="d-none d-md-table-cell"><strong>MODE DE RÈGLEMENT</strong></th>
                   <th className="d-none d-md-table-cell"><strong>OPÉRATEUR</strong></th>
                   <th className="d-none d-md-table-cell"><strong>STATUT</strong></th>
-                  <th className="text-end"><strong>ACTION</strong></th>
+                  <th className="text-end pe-3" style={{ minWidth: "90px" }}><strong>ACTION</strong></th>
                 </tr>
               </thead>
               <tbody>
