@@ -108,8 +108,8 @@ const Header = ({ onNote }) => {
               </div>
             </div>
 
-            <ul className="navbar-nav header-right d-flex flex-row align-items-center flex-nowrap mb-0 gap-2"> 
-              <li className="nav-item dropdown notification_dropdown d-none d-md-flex align-items-center">
+            <ul className="navbar-nav header-right d-flex flex-row align-items-center flex-nowrap mb-0 gap-2 pe-2 pe-md-3"> 
+              <li className="nav-item dropdown notification_dropdown d-none d-xl-flex align-items-center">
                 <a
                   href="/admin/affichage-salle-attente"
                   target="_blank"
@@ -140,7 +140,7 @@ const Header = ({ onNote }) => {
                   </svg>
                 </a>
               </li>
-              <li className="nav-item d-none d-md-flex align-items-center">
+              <li className="nav-item d-none d-xl-flex align-items-center">
                 <a
                   href="/"
                   target="_blank"
@@ -154,7 +154,7 @@ const Header = ({ onNote }) => {
               </li> 
               {fullScreen ? (
                 <li
-                  className="nav-item dropdown notification_dropdown d-none d-md-flex align-items-center"
+                  className="nav-item dropdown notification_dropdown d-none d-xl-flex align-items-center"
                   onClick={() => offFullScreen()}
                 >
                   <Link className="nav-link dz-fullscreen active" to={"#"}>
@@ -189,7 +189,7 @@ const Header = ({ onNote }) => {
                   </Link>
                 </li>
               ) : (
-                <li className="nav-item dropdown notification_dropdown d-none d-md-flex align-items-center">
+                <li className="nav-item dropdown notification_dropdown d-none d-xl-flex align-items-center">
                   <Link
                     className="nav-link dz-fullscreen"
                     to="#"
@@ -228,7 +228,7 @@ const Header = ({ onNote }) => {
               )}
               
 
-              <Dropdown as="li" className="nav-item dropdown header-profile d-flex align-items-center">
+              <Dropdown as="li" className="nav-item dropdown header-profile d-flex align-items-center me-1 me-sm-2">
                 <Dropdown.Toggle
                   as={Link}
                   variant=""

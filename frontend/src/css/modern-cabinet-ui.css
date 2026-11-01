@@ -256,3 +256,35 @@ select.form-select-sm {
 .row.page-titles {
   display: none !important;
 }
+
+
+/* ========================================================
+   HEADER MOBILE & TABLET RESPONSIVE FIX
+   Évite tout débordement ou coupure de l'avatar profil
+   ======================================================== */
+@media (max-width: 991px) {
+  .header {
+    padding-left: 5rem !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  .header .header-content {
+    padding-left: 1rem !important;
+    padding-right: 1.25rem !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+  }
+  .header .navbar {
+    width: 100% !important;
+  }
+  .header .header-right {
+    margin-right: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+  .header-profile {
+    padding-right: 0.5rem !important;
+  }
+  .header-profile .avatar-initials {
+    margin-right: 6px !important;
+  }
+}

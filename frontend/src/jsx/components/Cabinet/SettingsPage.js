@@ -237,7 +237,7 @@ const SettingsPage = () => {
       <PageTitle motherMenu="Cabinet et configuration" activeMenu="Paramètres" />
 
       {/* Onglets de navigation entre Paramètres, SMTP et Mon Cabinet */}
-      <div className="d-flex align-items-center gap-2 mb-3">
+      <div className="d-flex align-items-center gap-2 mb-3 flex-wrap">
         <button type="button" className="btn btn-sm btn-primary btn-rounded px-3 py-2">
           <i className="flaticon-381-settings-2 me-1"></i> Tarifs & Consultations
         </button>
