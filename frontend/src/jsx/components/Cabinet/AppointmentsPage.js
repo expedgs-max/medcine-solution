@@ -2063,7 +2063,7 @@ const AppointmentsPage = () => {
             </div>
           </div>
           <div className="card-body">
-            <div className="table-responsive">
+            <div className="table-responsive d-none d-md-block">
               <table className="table table-hover">
                 <thead>
                   <tr>
@@ -2221,6 +2221,130 @@ const AppointmentsPage = () => {
                   )}
                 </tbody>
               </table>
+            </div>
+
+            {/* VUE MOBILE SPÉCIALE : CARTES RDV POUR SMARTPHONE */}
+            <div className="d-block d-md-none">
+              {filteredAppointments.length === 0 ? (
+                <div className="text-center py-4 text-muted">
+                  Aucun rendez-vous ne correspond aux critères.
+                </div>
+              ) : (
+                filteredAppointments.map((rdv) => (
+                  <div
+                    key={rdv.id}
+                    className="card border mb-3 shadow-none"
+                    style={{
+                      borderRadius: "0.85rem",
+                      borderColor: "#e2e8f0",
+                      backgroundColor: "#ffffff",
+                    }}
+                  >
+                    <div
+                      className="p-3 border-bottom d-flex justify-content-between align-items-center"
+                      style={{ backgroundColor: "#f8fafc" }}
+                    >
+                      <span className="badge badge-info light font-w700 fs-12">
+                        Ticket N° {rdv.ticketNumber || calculateTicketNumber(rdv.time)}
+                      </span>
+                      <span className="font-w600 text-dark fs-12 d-flex align-items-center gap-1">
+                        <i className="fa fa-clock-o text-primary"></i>
+                        {rdv.date} à {rdv.time}
+                      </span>
+                    </div>
+
+                    <div className="p-3">
+                      <div className="d-flex justify-content-between align-items-start mb-2">
+                        <div>
+                          <span className="text-muted fs-11 text-uppercase font-w600 d-block">
+                            PATIENT
+                          </span>
+                          <h5 className="font-w700 text-dark mb-0 fs-15">
+                            {(rdv.patientName || "").replace(/\s*\(sc\)/gi, "").trim()}
+                          </h5>
+                        </div>
+                        {getStatusBadge(rdv.status)}
+                      </div>
+
+                      <div className="d-flex align-items-center gap-3 mt-2 pt-2 border-top fs-12">
+                        <span className="text-muted d-flex align-items-center gap-1">
+                          <i className="fa fa-hourglass-half text-primary"></i>
+                          <span>{rdv.duration}</span>
+                        </span>
+                        {rdv.phone && (
+                          <a
+                            href={`tel:${rdv.phone}`}
+                            className="text-primary font-w600 text-decoration-none d-flex align-items-center gap-1"
+                          >
+                            <i className="fa fa-phone text-success"></i>
+                            <span>{rdv.phone}</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+
+                    <div
+                      className="p-2 px-3 border-top d-flex justify-content-end align-items-center gap-2"
+                      style={{ backgroundColor: "#ffffff" }}
+                    >
+                      {rdv.status === "En attente" || (rdv.status && rdv.status.toLowerCase().includes("attente")) ? (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-danger btn-rounded d-flex align-items-center gap-1 px-3"
+                            onClick={(e) => handleRefuseRdv(rdv, e)}
+                            style={{ fontSize: "12px", fontWeight: "600" }}
+                          >
+                            <i className="fa fa-times"></i>
+                            <span>Refuser</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-success btn-rounded text-white d-flex align-items-center gap-1 px-3"
+                            onClick={(e) => handleAcceptRdv(rdv, e)}
+                            style={{ fontSize: "12px", fontWeight: "600" }}
+                          >
+                            <i className="fa fa-check"></i>
+                            <span>Accepter</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className={`btn btn-sm btn-rounded d-flex align-items-center gap-1 px-3 ${
+                              rdv.status === "Arrivé"
+                                ? "btn-success text-white"
+                                : "btn-outline-primary"
+                            }`}
+                            onClick={() => handleMarkArrived(rdv)}
+                            style={{ fontSize: "12px", fontWeight: "600" }}
+                          >
+                            <i className="fa fa-check-circle"></i>
+                            <span>{rdv.status === "Arrivé" ? "Arrivé" : "Marquer Arrivé"}</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-info btn-rounded d-flex align-items-center gap-1 px-2"
+                            onClick={() => handleOpenEdit(rdv)}
+                            title="Modifier"
+                          >
+                            <i className="fa fa-pencil"></i>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-outline-danger btn-rounded d-flex align-items-center gap-1 px-2"
+                            onClick={() => handleDeleteRdv(rdv.id)}
+                            title="Supprimer"
+                          >
+                            <i className="fa fa-trash"></i>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>

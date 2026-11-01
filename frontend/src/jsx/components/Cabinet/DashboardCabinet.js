@@ -362,7 +362,7 @@ const DashboardCabinet = () => {
               </Link>
             </div>
             <div className="card-body">
-              <div className="table-responsive">
+              <div className="table-responsive d-none d-md-block">
                 <table className="table table-hover mb-0" style={{ width: "100%" }}>
                   <thead>
                     <tr>
@@ -494,6 +494,140 @@ const DashboardCabinet = () => {
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* VUE MOBILE SPÉCIALE : CARTES RDV DU JOUR POUR SMARTPHONE */}
+              <div className="d-block d-md-none">
+                {todayAppointmentsList.length === 0 ? (
+                  <div className="text-center py-4 text-muted">
+                    <i className="flaticon-381-calendar-1 fs-24 d-block mb-2 text-primary opacity-50"></i>
+                    Aucun rendez-vous programmé pour aujourd'hui
+                  </div>
+                ) : (
+                  todayAppointmentsList.map((rdv) => (
+                    <div
+                      key={rdv.id}
+                      className="card border mb-3 shadow-none"
+                      style={{
+                        borderRadius: "0.85rem",
+                        borderColor: "#e2e8f0",
+                        backgroundColor: "#ffffff",
+                      }}
+                    >
+                      <div
+                        className="p-3 border-bottom d-flex justify-content-between align-items-center"
+                        style={{ backgroundColor: "#f8fafc" }}
+                      >
+                        <span className="badge badge-light text-primary font-w700 fs-12">
+                          <i className="flaticon-381-clock me-1"></i>
+                          {rdv.time}
+                        </span>
+                        <span className="text-muted fs-11">{rdv.date}</span>
+                      </div>
+
+                      <div className="p-3">
+                        <div className="d-flex justify-content-between align-items-start mb-2">
+                          <div>
+                            <span className="text-muted fs-11 text-uppercase font-w600 d-block">
+                              PATIENT
+                            </span>
+                            <h5 className="font-w700 text-dark mb-0 fs-15">
+                              {(rdv.patientName || "Patient").replace(/\s*\(sc\)/gi, "").trim()}
+                            </h5>
+                          </div>
+                          {getStatusBadge(rdv.status)}
+                        </div>
+
+                        {rdv.phone && (
+                          <div className="mt-2 pt-2 border-top fs-12">
+                            <a
+                              href={`tel:${rdv.phone}`}
+                              className="text-primary font-w600 text-decoration-none d-flex align-items-center gap-1"
+                            >
+                              <i className="fa fa-phone text-success"></i>
+                              <span>{rdv.phone}</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
+
+                      <div
+                        className="p-2 px-3 border-top d-flex justify-content-end align-items-center gap-2"
+                        style={{ backgroundColor: "#ffffff" }}
+                      >
+                        {rdv.status === "Arrivé" && (
+                          <button
+                            className="btn btn-primary btn-sm btn-rounded"
+                            onClick={() => navigate("/admin/consultations")}
+                          >
+                            Consulter
+                          </button>
+                        )}
+                        {rdv.status === "Confirmé" && (
+                          <button
+                            className="btn btn-outline-success btn-sm btn-rounded"
+                            onClick={async () => {
+                              try {
+                                const cleanId = typeof rdv.id === "string" && rdv.id.startsWith("RDV-")
+                                  ? parseInt(rdv.id.replace("RDV-", ""), 10)
+                                  : parseInt(rdv.id, 10) || rdv.id;
+                                await ApiService.updateAppointment({ id: cleanId, status: "Arrivé" });
+                                setAppointments((prev) =>
+                                  prev.map((a) => (a.id === rdv.id ? { ...a, status: "Arrivé" } : a))
+                                );
+                              } catch (e) {
+                                console.error(e);
+                              }
+                            }}
+                          >
+                            Marquer Arrivé
+                          </button>
+                        )}
+                        {rdv.status === "En attente" && (
+                          <>
+                            <button
+                              className="btn btn-outline-danger btn-sm btn-rounded"
+                              onClick={async () => {
+                                try {
+                                  await ApiService.deleteAppointment(rdv.id);
+                                  setAppointments((prev) => prev.filter((a) => a.id !== rdv.id));
+                                } catch (e) {
+                                  console.error(e);
+                                }
+                              }}
+                            >
+                              Refuser
+                            </button>
+                            <button
+                              className="btn btn-success btn-sm btn-rounded text-white"
+                              onClick={async () => {
+                                try {
+                                  const cleanId = typeof rdv.id === "string" && rdv.id.startsWith("RDV-")
+                                    ? parseInt(rdv.id.replace("RDV-", ""), 10)
+                                    : parseInt(rdv.id, 10) || rdv.id;
+                                  await ApiService.updateAppointment({ id: cleanId, status: "Confirmé" });
+                                  setAppointments((prev) =>
+                                    prev.map((a) => (a.id === rdv.id ? { ...a, status: "Confirmé" } : a))
+                                  );
+                                } catch (e) {
+                                  console.error(e);
+                                }
+                              }}
+                            >
+                              Accepter
+                            </button>
+                          </>
+                        )}
+                        <Link
+                          to={rdv.patientId ? `/admin/patient-details?id=${rdv.patientId}` : "/admin/appointments"}
+                          className="btn btn-outline-primary btn-sm btn-rounded"
+                        >
+                          Détails
+                        </Link>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

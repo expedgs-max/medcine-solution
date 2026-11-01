@@ -810,7 +810,7 @@ const PrescriptionsPage = () => {
               </div>
 
               <div className="card-body px-4 py-3">
-                <div className="table-responsive" style={{ overflow: "visible" }}>
+                <div className="table-responsive d-none d-md-block" style={{ overflow: "visible" }}>
                   <table className="table table-borderless align-middle mb-0">
                     <thead>
                       <tr
@@ -1011,6 +1011,193 @@ const PrescriptionsPage = () => {
                   </table>
                 </div>
 
+                {/* VUE MOBILE SPÉCIALE : CARTES DE SAISIE POUR CHAQUE MÉDICAMENT (SUR SMARTPHONE) */}
+                <div className="d-block d-md-none">
+                  {formData.items.map((item, index) => (
+                    <div
+                      key={index}
+                      className="card border mb-3 shadow-none"
+                      style={{
+                        borderRadius: "0.85rem",
+                        borderColor: "#e2e8f0",
+                        backgroundColor: "#ffffff",
+                      }}
+                    >
+                      <div
+                        className="p-3 border-bottom d-flex justify-content-between align-items-center"
+                        style={{ backgroundColor: "#f8fafc" }}
+                      >
+                        <span className="font-w700 text-dark fs-14 d-flex align-items-center gap-2">
+                          <i className="fa fa-pills text-primary"></i>
+                          <span>Médicament #{index + 1}</span>
+                        </span>
+                        {formData.items.length > 1 && (
+                          <button
+                            type="button"
+                            className="btn btn-sm btn-link text-danger p-0"
+                            onClick={() => handleRemoveItem(index)}
+                            title="Supprimer ce médicament"
+                          >
+                            <i className="fa fa-trash fs-15 text-danger"></i>
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="p-3">
+                        <div className="mb-3">
+                          <label className="form-label fs-11 font-w700 text-uppercase text-dark mb-1">
+                            MÉDICAMENT <span className="text-danger">*</span>
+                          </label>
+                          <MedicationSearchInput
+                            value={item.medication}
+                            onChange={(val) => handleItemChange(index, "medication", val)}
+                            medications={medications}
+                            onSelectMedication={(med) => handleSelectMedication(index, med)}
+                            placeholder="Rechercher ou saisir un médicament..."
+                          />
+                        </div>
+
+                        <div className="mb-3">
+                          <label className="form-label fs-11 font-w700 text-uppercase text-dark mb-1">
+                            CATÉGORIE / FORME
+                          </label>
+                          <select
+                            className="form-control form-control-sm"
+                            value={item.form || ""}
+                            onChange={(e) => handleItemChange(index, "form", e.target.value)}
+                            style={{
+                              height: "44px",
+                              fontSize: "13px",
+                              fontWeight: item.form ? "600" : "400",
+                              borderRadius: "0.6rem",
+                              borderColor: "#e2e8f0",
+                              backgroundColor: "#ffffff",
+                              color: item.form ? "#1e60d5" : "#94a3b8",
+                            }}
+                          >
+                            <option value="" style={{ color: "#94a3b8" }}>
+                              -- Sélectionner le type --
+                            </option>
+                            {item.form &&
+                              !MEDICATION_TYPES.some(
+                                (t) =>
+                                  t.value.toLowerCase() === item.form.toLowerCase() ||
+                                  t.label.toLowerCase() === item.form.toLowerCase()
+                              ) && (
+                                <option value={item.form} style={{ color: "#1e293b" }}>
+                                  {item.form}
+                                </option>
+                              )}
+                            {MEDICATION_TYPES.map((t) => (
+                              <option key={t.value} value={t.value} style={{ color: "#1e293b" }}>
+                                {t.label}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div className="mb-3">
+                          <label className="form-label fs-11 font-w700 text-uppercase text-dark mb-1">
+                            COMBIEN DE FOIS PAR JOUR
+                          </label>
+                          <input
+                            type="text"
+                            list={`posology-options-mob-${index}`}
+                            className="form-control form-control-sm"
+                            placeholder="Ex: 2 fois par jour..."
+                            value={item.posology}
+                            onChange={(e) => handleItemChange(index, "posology", e.target.value)}
+                            style={{
+                              height: "44px",
+                              fontSize: "13px",
+                              fontWeight: "500",
+                              borderRadius: "0.6rem",
+                              borderColor: "#e2e8f0",
+                              backgroundColor: "#ffffff",
+                              color: "#1e293b",
+                            }}
+                          />
+                          <datalist id={`posology-options-mob-${index}`}>
+                            <option value="1 fois par jour" />
+                            <option value="2 fois par jour" />
+                            <option value="3 fois par jour" />
+                            <option value="4 fois par jour" />
+                            <option value="1 comprimé matin et soir" />
+                            <option value="1 comprimé matin, midi et soir" />
+                            <option value="1 cuillère matin et soir" />
+                            <option value="1 sachet le matin" />
+                            <option value="En cas de besoin (douleur / fièvre)" />
+                          </datalist>
+                        </div>
+
+                        <div className="row g-2">
+                          <div className="col-6">
+                            <label className="form-label fs-11 font-w700 text-uppercase text-dark mb-1">
+                              REPAS
+                            </label>
+                            <input
+                              type="text"
+                              list={`meal-options-mob-${index}`}
+                              className="form-control form-control-sm"
+                              placeholder="Ex: Après repas..."
+                              value={item.mealTiming}
+                              onChange={(e) => handleItemChange(index, "mealTiming", e.target.value)}
+                              style={{
+                                height: "44px",
+                                fontSize: "13px",
+                                fontWeight: "500",
+                                borderRadius: "0.6rem",
+                                borderColor: "#e2e8f0",
+                                backgroundColor: "#ffffff",
+                                color: "#1e293b",
+                              }}
+                            />
+                            <datalist id={`meal-options-mob-${index}`}>
+                              <option value="Avant les repas" />
+                              <option value="Pendant les repas" />
+                              <option value="Après les repas" />
+                              <option value="À jeun (le matin)" />
+                              <option value="Au coucher" />
+                            </datalist>
+                          </div>
+
+                          <div className="col-6">
+                            <label className="form-label fs-11 font-w700 text-uppercase text-dark mb-1">
+                              DURÉE
+                            </label>
+                            <input
+                              type="text"
+                              list={`duration-options-mob-${index}`}
+                              className="form-control form-control-sm"
+                              placeholder="Ex: 5 jours..."
+                              value={item.duration}
+                              onChange={(e) => handleItemChange(index, "duration", e.target.value)}
+                              style={{
+                                height: "44px",
+                                fontSize: "13px",
+                                fontWeight: "500",
+                                borderRadius: "0.6rem",
+                                borderColor: "#e2e8f0",
+                                backgroundColor: "#ffffff",
+                                color: "#1e293b",
+                              }}
+                            />
+                            <datalist id={`duration-options-mob-${index}`}>
+                              <option value="3 jours" />
+                              <option value="5 jours" />
+                              <option value="7 jours" />
+                              <option value="10 jours" />
+                              <option value="15 jours" />
+                              <option value="1 mois" />
+                              <option value="3 mois" />
+                            </datalist>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
                 <div className="pt-3">
                   <Button
                     variant="outline-primary"
@@ -1152,7 +1339,7 @@ const PrescriptionsPage = () => {
               </div>
             </div>
             <div className="card-body">
-              <div className="table-responsive">
+              <div className="table-responsive d-none d-md-block">
                 <table className="table table-hover mb-0" style={{ width: "100%" }}>
                   <thead>
                     <tr>
@@ -1246,6 +1433,140 @@ const PrescriptionsPage = () => {
                     )}
                   </tbody>
                 </table>
+              </div>
+
+              {/* VUE MOBILE SPÉCIALE : CARTES LISIBLES POUR CHAQUE ORDONNANCE (SUR SMARTPHONE) */}
+              <div className="d-block d-md-none">
+                {filteredPrescriptions.length === 0 ? (
+                  <div className="text-center py-4 text-muted fs-13">
+                    Aucune ordonnance trouvée.
+                  </div>
+                ) : (
+                  filteredPrescriptions.map((ord) => (
+                    <div
+                      key={ord.id}
+                      className="card border mb-3 shadow-none"
+                      style={{
+                        borderRadius: "0.85rem",
+                        borderColor: "#e2e8f0",
+                        backgroundColor: "#ffffff",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        className="p-3 border-bottom d-flex justify-content-between align-items-center"
+                        style={{ backgroundColor: "#f8fafc" }}
+                      >
+                        <span
+                          className="badge"
+                          style={{
+                            backgroundColor: "#eff6ff",
+                            color: "#1e60d5",
+                            border: "1px solid #bfdbfe",
+                            fontSize: "12px",
+                            fontWeight: "700",
+                            padding: "6px 10px",
+                          }}
+                        >
+                          {ord.prescriptionNumber}
+                        </span>
+                        <span className="text-muted fs-12 font-w500 d-flex align-items-center gap-1">
+                          <i className="fa fa-calendar-alt text-primary opacity-75"></i>
+                          {ord.date}
+                        </span>
+                      </div>
+
+                      <div className="p-3">
+                        <div className="d-flex justify-content-between align-items-start mb-2">
+                          <div>
+                            <span className="text-muted fs-11 text-uppercase font-w600 d-block">
+                              PATIENT
+                            </span>
+                            <h5 className="font-w700 text-dark mb-0 fs-15">
+                              {ord.patientName}
+                            </h5>
+                          </div>
+                          <span
+                            className="badge"
+                            style={{
+                              backgroundColor: "#f0fdf4",
+                              color: "#16a34a",
+                              border: "1px solid #bbf7d0",
+                              fontSize: "11px",
+                            }}
+                          >
+                            {ord.validity || "3 mois"}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 pt-2 border-top">
+                          <span className="text-muted fs-11 text-uppercase font-w600 d-block mb-1">
+                            MÉDICAMENTS PRESCRITS ({(ord.items || []).length})
+                          </span>
+                          <ul className="mb-0 ps-3 fs-13" style={{ lineHeight: "1.6" }}>
+                            {(ord.items || []).map((item, idx) => (
+                              <li key={idx} className="mb-1">
+                                <strong className="text-dark">{item.medication}</strong>
+                                {item.form && (
+                                  <span
+                                    className="badge badge-sm badge-info light border ms-1 py-0 px-1"
+                                    style={{ fontSize: "10px" }}
+                                  >
+                                    {item.form}
+                                  </span>
+                                )}
+                                {item.posology && (
+                                  <span className="text-dark font-w500 ms-1">
+                                    — {item.posology}
+                                  </span>
+                                )}
+                                {(item.instructions || item.mealTiming) && (
+                                  <span className="text-muted ms-1">
+                                    ({item.instructions || item.mealTiming})
+                                  </span>
+                                )}
+                                {item.duration && (
+                                  <span className="text-primary font-w600 ms-1">
+                                    [{item.duration}]
+                                  </span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      </div>
+
+                      <div
+                        className="p-2 px-3 border-top d-flex justify-content-end align-items-center gap-2"
+                        style={{ backgroundColor: "#ffffff" }}
+                      >
+                        <button
+                          type="button"
+                          className="btn btn-outline-danger btn-sm btn-rounded d-flex align-items-center gap-1 px-3"
+                          onClick={() => handleDeletePrescription(ord.id, ord.prescriptionNumber)}
+                          style={{ fontSize: "12px", fontWeight: "600" }}
+                        >
+                          <i className="fa fa-trash"></i>
+                          <span>Supprimer</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-primary btn-sm btn-rounded d-flex align-items-center gap-1 px-3"
+                          onClick={() => setPreviewPrescription(ord)}
+                          style={{
+                            backgroundColor: "#1e60d5",
+                            borderColor: "#1e60d5",
+                            fontSize: "12px",
+                            fontWeight: "600",
+                          }}
+                        >
+                          <i className="fa fa-print"></i>
+                          <span>Imprimer A5</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>

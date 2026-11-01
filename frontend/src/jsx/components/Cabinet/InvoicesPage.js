@@ -489,7 +489,7 @@ const InvoicesPage = () => {
           </div>
         </div>
         <div className="card-body">
-          <div className="table-responsive">
+          <div className="table-responsive d-none d-md-block">
             <table className="table table-hover mb-0" style={{ width: "100%" }}>
               <thead>
                 <tr>
@@ -558,6 +558,77 @@ const InvoicesPage = () => {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* VUE MOBILE SPÉCIALE : CARTES FACTURES POUR SMARTPHONE */}
+          <div className="d-block d-md-none">
+            {filteredInvoices.length === 0 ? (
+              <div className="text-center py-5 text-muted">
+                Aucune facture trouvée.
+              </div>
+            ) : (
+              filteredInvoices.map((inv) => (
+                <div
+                  key={inv.id}
+                  className="card border mb-3 shadow-none"
+                  style={{
+                    borderRadius: "0.85rem",
+                    borderColor: "#e2e8f0",
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <div
+                    className="p-3 border-bottom d-flex justify-content-between align-items-center"
+                    style={{ backgroundColor: "#f8fafc" }}
+                  >
+                    <strong className="text-primary font-w700 fs-13">
+                      {inv.invoiceNumber}
+                    </strong>
+                    <span className="font-w600 text-dark fs-12 d-flex align-items-center gap-1">
+                      <i className="fa fa-calendar text-primary"></i>
+                      {inv.date} {formatInvoiceTime(inv) && `• ${formatInvoiceTime(inv)}`}
+                    </span>
+                  </div>
+
+                  <div className="p-3">
+                    <div className="d-flex justify-content-between align-items-start mb-2">
+                      <div>
+                        <span className="text-muted fs-11 text-uppercase font-w600 d-block">
+                          PATIENT
+                        </span>
+                        <h5 className="font-w700 text-dark mb-0 fs-15">
+                          {cleanPatientName(inv.patientName)}
+                        </h5>
+                      </div>
+                      <strong className="text-success fs-15 font-w700">
+                        {inv.amount.toLocaleString("fr-DZ")} DA
+                      </strong>
+                    </div>
+
+                    {inv.actDescription && (
+                      <div className="mt-2 pt-2 border-top fs-12 text-muted">
+                        <span className="font-w600 text-dark">Acte :</span> {inv.actDescription}
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    className="p-2 px-3 border-top d-flex justify-content-end align-items-center"
+                    style={{ backgroundColor: "#ffffff" }}
+                  >
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-primary btn-rounded d-flex align-items-center gap-1 px-3"
+                      onClick={() => setPreviewInvoice(inv)}
+                      style={{ fontSize: "12px", fontWeight: "600" }}
+                    >
+                      <i className="flaticon-381-print"></i>
+                      <span>Imprimer Facture</span>
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

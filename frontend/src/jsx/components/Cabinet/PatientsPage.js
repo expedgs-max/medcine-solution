@@ -542,7 +542,7 @@ const PatientsPage = () => {
           </div>
         </div>
         <div className="card-body">
-          <div className="table-responsive">
+          <div className="table-responsive d-none d-md-block">
             <table className="table table-hover mb-0" style={{ width: "100%" }}>
               <thead>
                 <tr>
@@ -643,6 +643,112 @@ const PatientsPage = () => {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* VUE MOBILE SPÉCIALE : CARTES PATIENTS POUR SMARTPHONE */}
+          <div className="d-block d-md-none">
+            {loading ? (
+              <div className="text-center py-4 text-muted">
+                <i className="fa fa-spinner fa-spin me-2"></i> Chargement des patients...
+              </div>
+            ) : filteredPatients.length === 0 ? (
+              <div className="text-center py-4 text-muted">
+                Aucun patient trouvé.
+              </div>
+            ) : (
+              filteredPatients.map((p) => (
+                <div
+                  key={p.id}
+                  className="card border mb-3 shadow-none"
+                  style={{
+                    borderRadius: "0.85rem",
+                    borderColor: "#e2e8f0",
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <div
+                    className="p-3 border-bottom d-flex justify-content-between align-items-center"
+                    style={{ backgroundColor: "#f8fafc" }}
+                  >
+                    <span className="font-w700 text-dark fs-14">
+                      {(p.lastName || "").toUpperCase()} {p.firstName || ""}
+                    </span>
+                    <span
+                      className="badge badge-xs badge-info light"
+                      title="Mot de passe d'accès portail patient"
+                      style={{ fontFamily: "monospace", fontSize: "11px", letterSpacing: "0.5px" }}
+                    >
+                      <i className="fa fa-key me-1 text-primary"></i>
+                      {p.password || generatePatientPassword(p.lastName, p.firstName, p.phone)}
+                    </span>
+                  </div>
+
+                  <div className="p-3">
+                    <div className="d-flex align-items-center gap-3 text-muted fs-12 mb-2">
+                      <span>{p.gender || "—"}</span>
+                      <span>•</span>
+                      <span>{p.dob || "—"} ({p.age || 0} ans)</span>
+                    </div>
+
+                    <div className="d-flex align-items-center justify-content-between pt-2 border-top fs-12">
+                      {p.phone ? (
+                        <a
+                          href={`tel:${p.phone}`}
+                          className="text-primary font-w600 text-decoration-none d-flex align-items-center gap-1"
+                        >
+                          <i className="fa fa-phone text-success"></i>
+                          <span>{p.phone}</span>
+                        </a>
+                      ) : (
+                        <span className="text-muted">Sans téléphone</span>
+                      )}
+                      <span className="text-muted">
+                        Dernière visite : <strong className="text-dark">{p.lastVisit || "N/A"}</strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  <div
+                    className="p-2 px-3 border-top d-flex justify-content-end align-items-center gap-2"
+                    style={{ backgroundColor: "#ffffff" }}
+                  >
+                    <Link
+                      to={`/admin/patient-details?id=${p.id}`}
+                      className="btn btn-sm btn-outline-primary btn-rounded d-flex align-items-center gap-1 px-3"
+                      style={{ fontSize: "12px", fontWeight: "600" }}
+                    >
+                      <i className="fa fa-folder-open"></i>
+                      <span>Dossier</span>
+                    </Link>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-info btn-rounded d-flex align-items-center gap-1 px-2"
+                      onClick={() => handleOpenEdit(p)}
+                      title="Modifier les coordonnées"
+                    >
+                      <i className="fa fa-pencil"></i>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-success btn-rounded text-white d-flex align-items-center gap-1 px-3"
+                      onClick={() => navigate(`/admin/consultations?patientId=${p.id}`)}
+                      style={{ fontSize: "12px", fontWeight: "600" }}
+                    >
+                      <i className="fa fa-stethoscope"></i>
+                      <span>Consulter</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger btn-rounded d-flex align-items-center gap-1 px-2"
+                      onClick={() => handleDeletePatient(p.id)}
+                      title="Supprimer"
+                    >
+                      <i className="fa fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>

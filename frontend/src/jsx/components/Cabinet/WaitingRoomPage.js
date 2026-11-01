@@ -634,7 +634,7 @@ const WaitingRoomPage = () => {
           <div className="d-none d-xl-block col-xl-4"></div>
         </div>
         <div className="card-body">
-          <div className="table-responsive" style={{ overflowX: "hidden" }}>
+          <div className="table-responsive d-none d-md-block" style={{ overflowX: "hidden" }}>
             <table className="table table-hover mb-0" style={{ width: "100%" }}>
               <thead>
                 <tr>
@@ -749,6 +749,116 @@ const WaitingRoomPage = () => {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* VUE MOBILE SPÉCIALE : CARTES SALLE D'ATTENTE POUR SMARTPHONE */}
+          <div className="d-block d-md-none">
+            {waitingList.length === 0 ? (
+              <div className="text-center py-5 text-muted">
+                <i className="flaticon-381-clock fs-36 d-block mb-2 text-primary"></i>
+                La salle d'attente est actuellement vide.
+              </div>
+            ) : (
+              waitingList.map((p) => (
+                <div
+                  key={p.id}
+                  className={`card border mb-3 shadow-none ${p.status === "En consultation" ? "border-primary" : ""}`}
+                  style={{
+                    borderRadius: "0.85rem",
+                    borderColor: p.status === "En consultation" ? "#1e60d5" : "#e2e8f0",
+                    backgroundColor: "#ffffff",
+                  }}
+                >
+                  <div
+                    className="p-3 border-bottom d-flex justify-content-between align-items-center"
+                    style={{ backgroundColor: p.status === "En consultation" ? "#eff6ff" : "#f8fafc" }}
+                  >
+                    <span className="badge badge-info light font-w800 fs-13">
+                      #{p.ticketNumber || calculateTicketNumber(p.appointmentTime)}
+                    </span>
+                    <span className="font-w600 text-dark fs-12 d-flex align-items-center gap-1">
+                      <i className="fa fa-clock-o text-primary"></i>
+                      Arrivée : {p.arrivalTime}
+                    </span>
+                  </div>
+
+                  <div className="p-3">
+                    <div className="d-flex justify-content-between align-items-start mb-2">
+                      <div>
+                        <span className="text-muted fs-11 text-uppercase font-w600 d-block">
+                          PATIENT
+                        </span>
+                        <h5 className="font-w700 text-dark mb-0 fs-15">
+                          {p.patientName}
+                        </h5>
+                      </div>
+                      <span className="appointment-status-badge" style={{ padding: "4px 8px", fontSize: "11px" }}>
+                        <span className="status-dot"></span>
+                        {p.status}
+                      </span>
+                    </div>
+
+                    {(p.reason || p.phone) && (
+                      <div className="mt-2 pt-2 border-top fs-12">
+                        {p.reason && (
+                          <div className="text-dark mb-1">
+                            <span className="text-muted font-w600">Motif :</span> {p.reason}
+                          </div>
+                        )}
+                        {p.phone && (
+                          <a
+                            href={`tel:${p.phone}`}
+                            className="text-primary font-w600 text-decoration-none d-flex align-items-center gap-1"
+                          >
+                            <i className="fa fa-phone text-success"></i>
+                            <span>{p.phone}</span>
+                          </a>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div
+                    className="p-2 px-3 border-top d-flex justify-content-end align-items-center gap-2"
+                    style={{ backgroundColor: "#ffffff" }}
+                  >
+                    {p.status === "En attente" && (
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-outline-warning btn-rounded d-flex align-items-center gap-1 px-3 text-dark"
+                        onClick={() => handleCallPatient(p)}
+                        style={{ fontSize: "12px", fontWeight: "600" }}
+                      >
+                        <i className="fa fa-bell text-warning"></i>
+                        <span>Appeler</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-primary btn-rounded d-flex align-items-center gap-1 px-3"
+                      onClick={() => handleStartConsultation(p)}
+                      style={{
+                        backgroundColor: "#1e60d5",
+                        borderColor: "#1e60d5",
+                        fontSize: "12px",
+                        fontWeight: "600",
+                      }}
+                    >
+                      <i className="fa fa-stethoscope"></i>
+                      <span>Consulter</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-outline-danger btn-rounded d-flex align-items-center gap-1 px-2"
+                      onClick={() => handleRemovePatient(p.id)}
+                      title="Retirer"
+                    >
+                      <i className="fa fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
