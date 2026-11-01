@@ -1958,16 +1958,23 @@ const ConsultationsPage = () => {
           </div>
         </div>
         <div className="card-body">
+          {/* Indicateur de defilement horizontal sur telephone */}
+          <div className="d-flex align-items-center justify-content-between mb-2 d-md-none text-muted fs-11 px-1">
+            <span><i className="fa fa-list me-1 text-primary"></i>{filteredConsultations.length} consultation{filteredConsultations.length > 1 ? 's' : ''}</span>
+            <span className="badge badge-sm badge-light text-primary border d-flex align-items-center gap-1 py-1 px-2">
+              <i className="fa fa-arrows-h"></i> Glisser droite / gauche
+            </span>
+          </div>
           <div className="table-responsive">
-            <table className="table table-hover mb-0" style={{ width: "100%" }}>
+            <table className="table table-hover mb-0" style={{ width: "100%", minWidth: "500px" }}>
               <thead>
                 <tr>
-                  <th style={{ minWidth: "90px" }}><strong>DATE & HEURE</strong></th>
-                  <th><strong>PATIENT</strong></th>
+                  <th style={{ minWidth: "100px", width: "110px" }}><strong>DATE & HEURE</strong></th>
+                  <th style={{ minWidth: "140px" }}><strong>PATIENT</strong></th>
                   <th className="d-none d-md-table-cell"><strong>MOTIF</strong></th>
                   <th className="d-none d-md-table-cell"><strong>DIAGNOSTIC (CIM-10)</strong></th>
                   <th className="d-none d-md-table-cell"><strong>COTATION</strong></th>
-                  <th className="text-end" style={{ width: "170px" }}><strong>ACTIONS</strong></th>
+                  <th className="text-end pe-3" style={{ width: "175px", minWidth: "175px" }}><strong>ACTIONS</strong></th>
                 </tr>
               </thead>
               <tbody>
@@ -2009,7 +2016,7 @@ const ConsultationsPage = () => {
                       <td className="d-none d-md-table-cell">
                         <span className="text-dark font-w500">{cs.billingCode}</span>
                       </td>
-                      <td style={{ width: "170px", whiteSpace: "nowrap" }} className="text-end pe-0">
+                      <td style={{ width: "175px", minWidth: "175px", whiteSpace: "nowrap" }} className="text-end pe-3">
                         <div className="d-flex justify-content-end align-items-center">
                           <button
                             type="button"

@@ -33838,10 +33838,10 @@ input[type=number] {
   }
 
   .table-responsive {
-    overflow-x: hidden !important;
-    -webkit-overflow-scrolling: auto !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    touch-action: pan-x pan-y !important;
     width: 100% !important;
-    max-width: 100% !important;
   }
 
   .table-responsive-md,
@@ -33850,8 +33850,7 @@ input[type=number] {
   table.table-responsive-md,
   .table-responsive table {
     min-width: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
+    max-width: none !important;
   }
 
   .table-responsive table th,
