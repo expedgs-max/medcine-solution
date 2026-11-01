@@ -631,6 +631,28 @@ export const ApiService = {
     }
   },
 
+  async markDocumentAsRead(id) {
+    try {
+      const res = await apiClient.post(`/documents.php?action=mark_read`, { id });
+      return res.data;
+    } catch (err) {
+      console.error("Erreur marquage document comme lu :", err.message);
+      return null;
+    }
+  },
+
+  async getUnreadDocumentsCount() {
+    try {
+      const res = await apiClient.get(`/documents.php?action=unread_count`);
+      if (res.data && res.data.status === "success" && res.data.data) {
+        return res.data.data.count || 0;
+      }
+    } catch (err) {
+      console.warn("Erreur comptage dépôts non lus :", err.message);
+    }
+    return 0;
+  },
+
   // ----------------------------------------------------
   // STATISTIQUES & VISITES DU SITE PUBLIC EN TEMPS RÉEL
   // ----------------------------------------------------

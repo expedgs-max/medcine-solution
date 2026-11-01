@@ -42,6 +42,7 @@ import {
   Activity,
   Download,
   Folder,
+  UploadCloud,
 } from "lucide-react";
 
 const getCleanMapIframeUrl = (url) => {
@@ -77,6 +78,31 @@ const getApiUrl = (endpoint) => {
     return `http://127.0.0.1:8000/api/${endpoint}`;
   }
   return `/backend/api/${endpoint}`;
+};
+
+// Helper universel pour formater et sécuriser les URLs de photos de profil
+const formatPatientPhoto = (photo) => {
+  if (!photo) return "";
+  if (photo.startsWith("data:") || photo.startsWith("blob:")) return photo;
+
+  // Si c'est déjà une URL absolue http(s)
+  if (photo.startsWith("http://") || photo.startsWith("https://")) {
+    // Si l'URL absolue pointe vers /uploads/ sans /backend/ sur un hébergeur en ligne (ex: belbachir.azizbtph.com)
+    if (photo.includes("/uploads/") && !photo.includes("/backend/uploads/") && !photo.includes(":8000")) {
+      return photo.replace("/uploads/", "/backend/uploads/");
+    }
+    return photo;
+  }
+
+  // Si c'est un chemin relatif (ex: uploads/avatars/...)
+  const cleanPath = photo.startsWith("/") ? photo.slice(1) : photo;
+  if (typeof window !== "undefined") {
+    if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+      return `http://127.0.0.1:8000/${cleanPath}`;
+    }
+    return `${window.location.origin}/backend/${cleanPath}`;
+  }
+  return `/backend/${cleanPath}`;
 };
 
 // Détermination de la vue active selon le chemin de l'URL
@@ -590,23 +616,22 @@ export default function PatientPortal() {
   const profilePhotoInputRef = useRef(null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [photoFeedback, setPhotoFeedback] = useState("");
-  const [guestPhoto, setGuestPhoto] = useState(() => {
-    try {
-      return localStorage.getItem("cabinet_patient_guest_photo") || "";
-    } catch (e) {
-      return "";
-    }
-  });
+  const [photoLoadError, setPhotoLoadError] = useState(false);
+  const displayPhoto = formatPatientPhoto(authenticatedPatient?.photo || "");
 
-  const displayPhoto = authenticatedPatient?.photo || guestPhoto;
+  useEffect(() => {
+    setPhotoLoadError(false);
+  }, [authenticatedPatient?.photo]);
 
   const handleProfilePhotoClick = () => {
+    if (!authenticatedPatient) return;
     if (profilePhotoInputRef.current) {
       profilePhotoInputRef.current.click();
     }
   };
 
   const handleProfilePhotoChange = async (e) => {
+    if (!authenticatedPatient || !authenticatedPatient.id) return;
     const file = e.target.files && e.target.files[0];
     if (!file) return;
 
@@ -627,48 +652,38 @@ export default function PatientPortal() {
       reader.onload = async () => {
         const base64Data = reader.result;
 
-        setGuestPhoto(base64Data);
         try {
-          localStorage.setItem("cabinet_patient_guest_photo", base64Data);
-        } catch (err) {}
+          const resp = await fetch(getApiUrl("patients.php?action=upload_photo"), {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              id: authenticatedPatient.id,
+              photo: base64Data,
+            }),
+          });
 
-        if (authenticatedPatient && authenticatedPatient.id) {
-          try {
-            const resp = await fetch(getApiUrl("patients.php?action=upload_photo"), {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                id: authenticatedPatient.id,
-                photo: base64Data,
-              }),
-            });
-
-            const json = await resp.json();
-            if (json.status === "success" && json.data?.photo) {
-              const updated = {
-                ...authenticatedPatient,
-                photo: json.data.photo,
-              };
-              setAuthenticatedPatient(updated);
-              localStorage.setItem("cabinet_patient_auth", JSON.stringify(updated));
-              setPhotoFeedback("Photo de profil mise à jour et enregistrée !");
-              setTimeout(() => setPhotoFeedback(""), 3500);
-            } else {
-              alert(json.message || "Erreur lors de l'enregistrement de la photo");
-            }
-          } catch (err) {
-            console.error("Erreur upload photo:", err);
-            alert("Erreur de connexion au serveur lors de l'enregistrement de la photo.");
-          } finally {
-            setUploadingPhoto(false);
-            if (e.target) e.target.value = "";
+          const json = await resp.json();
+          if (json.status === "success" && (json.data?.photo || base64Data)) {
+            const newPhotoUrl = formatPatientPhoto(json.data?.photo || base64Data);
+            const updated = {
+              ...authenticatedPatient,
+              photo: newPhotoUrl,
+            };
+            setPhotoLoadError(false);
+            setAuthenticatedPatient(updated);
+            localStorage.setItem("cabinet_patient_auth", JSON.stringify(updated));
+            setPhotoFeedback("Photo de profil mise à jour et enregistrée !");
+            setTimeout(() => setPhotoFeedback(""), 3500);
+          } else {
+            alert(json.message || "Erreur lors de l'enregistrement de la photo");
           }
-        } else {
+        } catch (err) {
+          console.error("Erreur upload photo:", err);
+          alert("Erreur de connexion au serveur lors de l'enregistrement de la photo.");
+        } finally {
           setUploadingPhoto(false);
-          setPhotoFeedback("Photo de profil sélectionnée ! Connectez-vous ci-dessous pour l'associer à votre dossier.");
-          setTimeout(() => setPhotoFeedback(""), 4500);
           if (e.target) e.target.value = "";
         }
       };
@@ -751,7 +766,19 @@ export default function PatientPortal() {
     prescriptions: false,
     echographies: false,
     documents: false,
+    uploadDoc: false,
   });
+
+  // Nouvel état pour déposer un document ou envoyer un texte au cabinet
+  const [uploadDocTitle, setUploadDocTitle] = useState("");
+  const [uploadDocCategory, setUploadDocCategory] = useState("Autre");
+  const [uploadDocText, setUploadDocText] = useState("");
+  const [uploadDocFile, setUploadDocFile] = useState(null);
+  const [uploadDocFilePreview, setUploadDocFilePreview] = useState(null);
+  const [uploadDocSubmitting, setUploadDocSubmitting] = useState(false);
+  const [uploadDocSuccess, setUploadDocSuccess] = useState("");
+  const [uploadDocError, setUploadDocError] = useState("");
+  const uploadFileInputRef = useRef(null);
 
   // Horloge réactive pour retirer automatiquement de l'accueil les RDV dont la date/heure est passée
   const [currentClock, setCurrentClock] = useState(() => new Date());
@@ -1598,6 +1625,133 @@ export default function PatientPortal() {
     return { pdf, filename: `${(doc.title || "Document").replace(/\s+/g, "_")}_${pName.replace(/\s+/g, "_")}.pdf` };
   };
 
+  // Gestion du dépôt de documents ou de textes par le patient connecté
+  const handleSelectUploadFile = (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 15 * 1024 * 1024) {
+      alert("Le fichier est trop volumineux (taille maximale : 15 Mo).");
+      return;
+    }
+
+    setUploadDocFile(file);
+
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        setUploadDocFilePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setUploadDocFilePreview(null);
+    }
+  };
+
+  const handleRemoveUploadFile = () => {
+    setUploadDocFile(null);
+    setUploadDocFilePreview(null);
+    if (uploadFileInputRef.current) {
+      uploadFileInputRef.current.value = "";
+    }
+  };
+
+  const handlePatientDocSubmit = async (e) => {
+    e.preventDefault();
+    if (!authenticatedPatient || !authenticatedPatient.id) {
+      alert("Veuillez vous connecter pour déposer un document.");
+      return;
+    }
+
+    const trimmedText = uploadDocText.trim();
+    if (!trimmedText && !uploadDocFile) {
+      setUploadDocError("Veuillez saisir un texte explicatif ou joindre un document.");
+      return;
+    }
+
+    setUploadDocSubmitting(true);
+    setUploadDocError("");
+    setUploadDocSuccess("");
+
+    try {
+      let fileBase64 = null;
+      let fileSizeStr = null;
+      let fileTypeStr = "TEXTE";
+
+      if (uploadDocFile) {
+        fileBase64 = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(uploadDocFile);
+        });
+
+        const ext = uploadDocFile.name.split(".").pop()?.toUpperCase() || "DOCUMENT";
+        fileTypeStr = ext;
+        fileSizeStr =
+          uploadDocFile.size > 1048576
+            ? `${(uploadDocFile.size / 1048576).toFixed(1)} Mo`
+            : `${Math.round(uploadDocFile.size / 1024)} Ko`;
+      } else {
+        fileSizeStr = `${trimmedText.length} car.`;
+      }
+
+      const docTitle =
+        uploadDocTitle.trim() ||
+        (trimmedText
+          ? (trimmedText.length > 40 ? trimmedText.slice(0, 40) + "..." : trimmedText)
+          : (uploadDocFile ? uploadDocFile.name.replace(/\.[^/.]+$/, "") : "Document transmis"));
+
+      const payload = {
+        patientId: authenticatedPatient.id,
+        title: docTitle,
+        notes: trimmedText || null,
+        category: uploadDocCategory || "Autre",
+        author: `Patient : ${authenticatedPatient.firstName || ""} ${authenticatedPatient.lastName || ""}`.trim(),
+        filePath: fileBase64,
+        fileType: fileTypeStr,
+        fileSize: fileSizeStr,
+        status: "Transmis par le patient",
+        date: new Date().toISOString().split("T")[0],
+      };
+
+      const resp = await fetch(getApiUrl("documents.php"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const json = await resp.json();
+
+      if (json.status === "success") {
+        setUploadDocSuccess("Votre document / message a été transmis avec succès et enregistré dans votre dossier !");
+        setUploadDocTitle("");
+        setUploadDocText("");
+        setUploadDocCategory("Autre");
+        handleRemoveUploadFile();
+
+        // Recharger immédiatement les documents du patient depuis MySQL
+        await loadPatientMedicalData(authenticatedPatient);
+        try {
+          window.dispatchEvent(new CustomEvent("portal_docs_updated"));
+        } catch (e) {}
+
+        setTimeout(() => {
+          setUploadDocSuccess("");
+        }, 5000);
+      } else {
+        setUploadDocError(json.message || "Erreur lors de l'enregistrement du document.");
+      }
+    } catch (err) {
+      console.error("Erreur dépot document :", err);
+      setUploadDocError("Erreur réseau ou connexion au serveur impossible.");
+    } finally {
+      setUploadDocSubmitting(false);
+    }
+  };
+
   // Prévisualisation d'un document médical dans la modale (identique à l'admin panel)
   const handleViewDocument = (doc) => {
     try {
@@ -1611,6 +1765,7 @@ export default function PatientPortal() {
 
       setPreviewingDoc({
         title: doc.title || "Document Médical",
+        notes: doc.notes || "",
         category: doc.category || "Document Médical",
         date: doc.date || doc.doc_date || new Date().toISOString().split("T")[0],
         author: doc.author || clinicInfo.doctorName || "Dr N. BELBACHIR OULD HENNIA",
@@ -1714,25 +1869,9 @@ export default function PatientPortal() {
         localStorage.setItem("cabinet_patient_auth", JSON.stringify(matched));
         setAuthSuccess(`Bienvenue ${fullName} ! Vous êtes connecté(e) à votre dossier.`);
 
-        // Synchroniser automatiquement la photo choisie vers MySQL lors de la connexion
-        const pendingPhoto = guestPhoto || localStorage.getItem("cabinet_patient_guest_photo");
-        if (pendingPhoto) {
-          try {
-            const upResp = await fetch(getApiUrl("patients.php?action=upload_photo"), {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: matched.id, photo: pendingPhoto }),
-            });
-            const upJson = await upResp.json();
-            if (upJson.status === "success" && upJson.data?.photo) {
-              matched.photo = upJson.data.photo;
-              setAuthenticatedPatient({ ...matched });
-              localStorage.setItem("cabinet_patient_auth", JSON.stringify(matched));
-              localStorage.removeItem("cabinet_patient_guest_photo");
-              setGuestPhoto("");
-            }
-          } catch (e) {}
-        }
+        try {
+          localStorage.removeItem("cabinet_patient_guest_photo");
+        } catch (e) {}
 
         // Charger factures, ordonnances et échographies
         loadPatientMedicalData(matched);
@@ -2885,36 +3024,41 @@ export default function PatientPortal() {
             >
               <div style={{ display: "flex", alignItems: "center", gap: "14px", minWidth: 0, flex: 1 }}>
                 <div
-                  onClick={handleProfilePhotoClick}
+                  onClick={authenticatedPatient ? handleProfilePhotoClick : undefined}
                   style={{
                     position: "relative",
                     width: "56px",
                     height: "56px",
                     borderRadius: "50%",
                     background: "linear-gradient(135deg, rgba(2, 132, 199, 0.15), rgba(14, 165, 233, 0.1))",
-                    border: (authenticatedPatient || displayPhoto) ? "2.5px solid var(--accent-mint)" : "1.5px solid rgba(2, 132, 199, 0.35)",
+                    border: (authenticatedPatient && displayPhoto) ? "2.5px solid var(--accent-mint)" : "1.5px solid rgba(2, 132, 199, 0.35)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     color: "var(--accent-mint)",
                     flexShrink: 0,
-                    cursor: "pointer",
+                    cursor: authenticatedPatient ? "pointer" : "default",
                     overflow: "hidden",
-                    boxShadow: "0 2px 10px rgba(16, 185, 129, 0.2)",
-                    transition: "transform 0.2s ease, box-shadow 0.2s ease",
+                    boxShadow: authenticatedPatient ? "0 2px 10px rgba(16, 185, 129, 0.2)" : "none",
+                    transition: authenticatedPatient ? "transform 0.2s ease, box-shadow 0.2s ease" : "none",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = "scale(1.06)";
+                    if (authenticatedPatient) {
+                      e.currentTarget.style.transform = "scale(1.06)";
+                    }
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = "scale(1)";
+                    if (authenticatedPatient) {
+                      e.currentTarget.style.transform = "scale(1)";
+                    }
                   }}
-                  title="Cliquer pour changer votre photo de profil"
+                  title={authenticatedPatient ? "Cliquer pour changer votre photo de profil" : undefined}
                 >
-                  {displayPhoto ? (
+                  {authenticatedPatient && displayPhoto && !photoLoadError ? (
                     <img
                       src={displayPhoto}
                       alt={patientName || "Photo de profil"}
+                      onError={() => setPhotoLoadError(true)}
                       style={{
                         width: "100%",
                         height: "100%",
@@ -2927,7 +3071,7 @@ export default function PatientPortal() {
                   )}
 
                   {/* Overlay pendant chargement */}
-                  {uploadingPhoto && (
+                  {authenticatedPatient && uploadingPhoto && (
                     <div
                       style={{
                         position: "absolute",
@@ -2943,8 +3087,8 @@ export default function PatientPortal() {
                     </div>
                   )}
 
-                  {/* Badge appareil photo pour modifier */}
-                  {!uploadingPhoto && (
+                  {/* Badge appareil photo pour modifier : affiché UNIQUEMENT si le patient est connecté */}
+                  {authenticatedPatient && !uploadingPhoto && (
                     <div
                       style={{
                         position: "absolute",
@@ -2966,14 +3110,16 @@ export default function PatientPortal() {
                   )}
                 </div>
 
-                {/* Input fichier masque pour changer la photo */}
-                <input
-                  type="file"
-                  ref={profilePhotoInputRef}
-                  accept="image/*"
-                  style={{ display: "none" }}
-                  onChange={handleProfilePhotoChange}
-                />
+                {/* Input fichier masque pour changer la photo - accessible uniquement si le patient est connecté */}
+                {authenticatedPatient && (
+                  <input
+                    type="file"
+                    ref={profilePhotoInputRef}
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    onChange={handleProfilePhotoChange}
+                  />
+                )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: "16px", fontWeight: "700", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                     {authenticatedPatient
@@ -3766,6 +3912,11 @@ export default function PatientPortal() {
                                   <div style={{ fontSize: "13.5px", fontWeight: "700", color: "var(--text-primary)", lineHeight: "1.35", wordBreak: "break-word" }}>
                                     {doc.title || "Document Médical"}
                                   </div>
+                                  {doc.notes && (
+                                    <div style={{ fontSize: "12px", color: "var(--text-secondary)", marginTop: "3px", fontStyle: "italic", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                      "{doc.notes}"
+                                    </div>
+                                  )}
                                   <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "6px 8px", fontSize: "12px", color: "var(--text-secondary)", marginTop: "4px" }}>
                                     <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
                                       <Calendar size={13} color="var(--accent-mint)" />
@@ -3814,6 +3965,332 @@ export default function PatientPortal() {
                           ))}
                         </div>
                       )
+                    )}
+                  </div>
+
+                  <div style={{ height: "1px", background: "rgba(2, 132, 199, 0.1)", margin: "4px 0" }} />
+
+                  {/* Section Déposer un Document ou Message (pour les patients connectés) */}
+                  <div style={{ marginBottom: openSections.uploadDoc ? "14px" : "0px" }}>
+                    <div
+                      onClick={() => toggleSection("uploadDoc")}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: openSections.uploadDoc ? "10px" : "0px",
+                        cursor: "pointer",
+                        userSelect: "none",
+                        padding: "8px 4px",
+                        borderRadius: "10px",
+                        transition: "background 0.2s ease",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(2, 132, 199, 0.04)")}
+                      onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                    >
+                      <h4 style={{ fontSize: "14px", fontWeight: "700", color: "var(--text-primary)", margin: 0, display: "flex", alignItems: "center", gap: "8px" }}>
+                        <UploadCloud size={15} color="var(--accent-mint)" />
+                        <span>Déposer un document / Message</span>
+                      </h4>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: "24px",
+                          height: "24px",
+                          borderRadius: "6px",
+                          background: "rgba(2, 132, 199, 0.08)",
+                          color: "var(--accent-mint)",
+                        }}
+                      >
+                        {openSections.uploadDoc ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                      </div>
+                    </div>
+
+                    {openSections.uploadDoc && (
+                      <div
+                        style={{
+                          padding: "16px",
+                          background: "linear-gradient(135deg, #f8fafc 0%, #f0f9ff 100%)",
+                          border: "1px solid rgba(2, 132, 199, 0.2)",
+                          borderLeft: "3px solid var(--accent-mint)",
+                          borderRadius: "14px",
+                          boxShadow: "0 2px 10px rgba(2, 132, 199, 0.06)",
+                          marginBottom: "10px",
+                        }}
+                      >
+                        <p style={{ fontSize: "12.5px", color: "var(--text-secondary)", margin: "0 0 14px", lineHeight: "1.5" }}>
+                          Transmettez une analyse, une radio, un compte-rendu ou un message écrit à votre médecin. Vous pouvez envoyer un document avec texte ou <strong>un texte seul</strong> sans fichier joint.
+                        </p>
+
+                        {uploadDocSuccess && (
+                          <div
+                            style={{
+                              padding: "10px 14px",
+                              background: "rgba(16, 185, 129, 0.12)",
+                              border: "1px solid rgba(16, 185, 129, 0.35)",
+                              borderRadius: "10px",
+                              color: "#059669",
+                              fontSize: "12.5px",
+                              fontWeight: "600",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              marginBottom: "12px",
+                            }}
+                          >
+                            <CheckCircle2 size={16} />
+                            <span>{uploadDocSuccess}</span>
+                          </div>
+                        )}
+
+                        {uploadDocError && (
+                          <div
+                            style={{
+                              padding: "10px 14px",
+                              background: "rgba(239, 68, 68, 0.1)",
+                              border: "1px solid rgba(239, 68, 68, 0.3)",
+                              borderRadius: "10px",
+                              color: "#dc2626",
+                              fontSize: "12.5px",
+                              fontWeight: "600",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "8px",
+                              marginBottom: "12px",
+                            }}
+                          >
+                            <X size={16} />
+                            <span>{uploadDocError}</span>
+                          </div>
+                        )}
+
+                        <form onSubmit={handlePatientDocSubmit}>
+                          {/* Titre / Objet */}
+                          <div style={{ marginBottom: "12px" }}>
+                            <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "4px" }}>
+                              Titre ou Objet <span style={{ fontWeight: "400", color: "var(--text-muted)" }}>(optionnel si texte fourni)</span>
+                            </label>
+                            <input
+                              type="text"
+                              value={uploadDocTitle}
+                              onChange={(e) => setUploadDocTitle(e.target.value)}
+                              placeholder="Ex: Analyse sanguine, Radio, Demande de conseil..."
+                              style={{
+                                width: "100%",
+                                padding: "9px 12px",
+                                fontSize: "13px",
+                                borderRadius: "8px",
+                                border: "1px solid var(--border-subtle)",
+                                background: "#ffffff",
+                                color: "var(--text-primary)",
+                                outline: "none",
+                              }}
+                            />
+                          </div>
+
+                          {/* Catégorie */}
+                          <div style={{ marginBottom: "12px" }}>
+                            <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "4px" }}>
+                              Catégorie
+                            </label>
+                            <select
+                              value={uploadDocCategory}
+                              onChange={(e) => setUploadDocCategory(e.target.value)}
+                              style={{
+                                width: "100%",
+                                padding: "9px 12px",
+                                fontSize: "13px",
+                                borderRadius: "8px",
+                                border: "1px solid var(--border-subtle)",
+                                background: "#ffffff",
+                                color: "var(--text-primary)",
+                                outline: "none",
+                              }}
+                            >
+                              <option value="Autre">Autre / Message pour le médecin</option>
+                              <option value="Analyses de laboratoire">Analyses de laboratoire (Bilan sanguin, Urine...)</option>
+                              <option value="Imagerie & Radiologie">Imagerie & Radiologie (Échographie, Radio, Scanner...)</option>
+                              <option value="Comptes rendus spécialistes">Comptes rendus spécialistes</option>
+                              <option value="Certificats médicaux">Certificats médicaux / Ordonnances</option>
+                            </select>
+                          </div>
+
+                          {/* Texte / Message */}
+                          <div style={{ marginBottom: "12px" }}>
+                            <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "4px" }}>
+                              Texte / Message pour le médecin <span style={{ fontWeight: "400", color: "var(--text-muted)" }}>(peut être envoyé seul)</span>
+                            </label>
+                            <textarea
+                              rows={3}
+                              value={uploadDocText}
+                              onChange={(e) => setUploadDocText(e.target.value)}
+                              placeholder="Rédigez ici vos explications, symptômes, questions ou remarques..."
+                              style={{
+                                width: "100%",
+                                padding: "10px 12px",
+                                fontSize: "13px",
+                                borderRadius: "8px",
+                                border: "1px solid var(--border-subtle)",
+                                background: "#ffffff",
+                                color: "var(--text-primary)",
+                                outline: "none",
+                                resize: "vertical",
+                              }}
+                            />
+                          </div>
+
+                          {/* Fichier joint (optionnel) */}
+                          <div style={{ marginBottom: "16px" }}>
+                            <label style={{ display: "block", fontSize: "12px", fontWeight: "700", color: "var(--text-primary)", marginBottom: "4px" }}>
+                              Document joint <span style={{ fontWeight: "400", color: "var(--text-muted)" }}>(optionnel si vous envoyez un texte)</span>
+                            </label>
+                            <input
+                              type="file"
+                              ref={uploadFileInputRef}
+                              onChange={handleSelectUploadFile}
+                              accept="image/*,.pdf,.doc,.docx"
+                              style={{ display: "none" }}
+                            />
+
+                            {!uploadDocFile ? (
+                              <button
+                                type="button"
+                                onClick={() => uploadFileInputRef.current && uploadFileInputRef.current.click()}
+                                style={{
+                                  width: "100%",
+                                  padding: "12px",
+                                  border: "1.5px dashed rgba(2, 132, 199, 0.4)",
+                                  borderRadius: "10px",
+                                  background: "rgba(255, 255, 255, 0.7)",
+                                  color: "var(--accent-mint)",
+                                  fontSize: "12.5px",
+                                  fontWeight: "600",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  gap: "8px",
+                                  cursor: "pointer",
+                                  transition: "all 0.2s ease",
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(2, 132, 199, 0.08)")}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = "rgba(255, 255, 255, 0.7)")}
+                              >
+                                <UploadCloud size={16} />
+                                <span>Choisir un document ou une photo (PDF, JPG, PNG...)</span>
+                              </button>
+                            ) : (
+                              <div
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "space-between",
+                                  padding: "10px 12px",
+                                  background: "#ffffff",
+                                  border: "1px solid rgba(2, 132, 199, 0.3)",
+                                  borderRadius: "10px",
+                                  gap: "10px",
+                                }}
+                              >
+                                <div style={{ display: "flex", alignItems: "center", gap: "10px", minWidth: 0 }}>
+                                  {uploadDocFilePreview ? (
+                                    <img
+                                      src={uploadDocFilePreview}
+                                      alt="Aperçu"
+                                      style={{ width: "36px", height: "36px", objectFit: "cover", borderRadius: "6px", border: "1px solid #e2e8f0" }}
+                                    />
+                                  ) : (
+                                    <div
+                                      style={{
+                                        width: "36px",
+                                        height: "36px",
+                                        borderRadius: "6px",
+                                        background: "rgba(2, 132, 199, 0.1)",
+                                        display: "flex",
+                                        alignItems: "center",
+                                        justifyContent: "center",
+                                        color: "var(--accent-mint)",
+                                        flexShrink: 0,
+                                      }}
+                                    >
+                                      <FileText size={18} />
+                                    </div>
+                                  )}
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontSize: "12.5px", fontWeight: "700", color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                                      {uploadDocFile.name}
+                                    </div>
+                                    <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                                      {uploadDocFile.size > 1048576
+                                        ? `${(uploadDocFile.size / 1048576).toFixed(1)} Mo`
+                                        : `${Math.round(uploadDocFile.size / 1024)} Ko`}
+                                    </div>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={handleRemoveUploadFile}
+                                  style={{
+                                    background: "rgba(239, 68, 68, 0.1)",
+                                    border: "none",
+                                    color: "#ef4444",
+                                    borderRadius: "6px",
+                                    padding: "6px 10px",
+                                    fontSize: "11.5px",
+                                    fontWeight: "600",
+                                    cursor: "pointer",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                    flexShrink: 0,
+                                  }}
+                                  title="Retirer ce fichier"
+                                >
+                                  <X size={13} />
+                                  <span>Retirer</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Bouton de soumission */}
+                          <button
+                            type="submit"
+                            disabled={uploadDocSubmitting || (!uploadDocText.trim() && !uploadDocFile)}
+                            style={{
+                              width: "100%",
+                              padding: "11px",
+                              borderRadius: "10px",
+                              border: "none",
+                              background: "linear-gradient(135deg, var(--accent-mint), #0284c7)",
+                              color: "#ffffff",
+                              fontSize: "13px",
+                              fontWeight: "700",
+                              cursor: uploadDocSubmitting || (!uploadDocText.trim() && !uploadDocFile) ? "not-allowed" : "pointer",
+                              opacity: uploadDocSubmitting || (!uploadDocText.trim() && !uploadDocFile) ? 0.6 : 1,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              gap: "8px",
+                              boxShadow: "0 2px 10px rgba(2, 132, 199, 0.25)",
+                              transition: "all 0.2s ease",
+                            }}
+                          >
+                            {uploadDocSubmitting ? (
+                              <>
+                                <div className="spinner-border spinner-border-sm text-white" role="status" style={{ width: "14px", height: "14px" }}></div>
+                                <span>Enregistrement dans votre dossier...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Send size={15} />
+                                <span>Enregistrer dans mon dossier médical</span>
+                              </>
+                            )}
+                          </button>
+                        </form>
+                      </div>
                     )}
                   </div>
                 </>
@@ -4057,10 +4534,11 @@ export default function PatientPortal() {
           }}
           title="Profil & Mes Rendez-vous"
         >
-          {displayPhoto ? (
+          {displayPhoto && !photoLoadError ? (
             <img
               src={displayPhoto}
               alt="Profil"
+              onError={() => setPhotoLoadError(true)}
               style={{
                 width: "20px",
                 height: "20px",
@@ -4441,6 +4919,28 @@ export default function PatientPortal() {
             ></button>
           </div>
           <div className="modal-body text-center p-4">
+            {previewingDoc.notes && (
+              <div
+                style={{
+                  textAlign: "left",
+                  background: "#f8fafc",
+                  border: "1px solid rgba(2, 132, 199, 0.2)",
+                  borderLeft: "4px solid var(--accent-mint)",
+                  borderRadius: "10px",
+                  padding: "12px 16px",
+                  marginBottom: "16px",
+                  whiteSpace: "pre-wrap",
+                  fontSize: "13.5px",
+                  color: "var(--text-primary)",
+                  lineHeight: "1.5",
+                }}
+              >
+                <div style={{ fontWeight: "700", marginBottom: "6px", color: "var(--accent-mint)", fontSize: "11.5px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  Message / Note associée :
+                </div>
+                {previewingDoc.notes}
+              </div>
+            )}
             {previewingDoc.fileDataUrl && (previewingDoc.isImage || ["JPG", "JPEG", "PNG", "WEBP"].includes((previewingDoc.type || "").toUpperCase())) ? (
               <img
                 src={previewingDoc.fileDataUrl}

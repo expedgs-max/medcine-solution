@@ -139,6 +139,19 @@ const PatientDetailsCabinet = () => {
   const patientDocuments = patient
     ? allDocuments.filter((d) => d.patientId === patient.id)
     : [];
+  const patientPortalUploads = patient
+    ? allDocuments.filter(
+        (d) =>
+          d.patientId === patient.id &&
+          ((d.status && d.status.toLowerCase().includes("patient")) ||
+            (d.author && d.author.toLowerCase().includes("patient")) ||
+            (d.fileType && ["TEXTE", "NOTE"].includes(d.fileType.toUpperCase())) ||
+            (d.notes && d.notes.trim().length > 0 && d.author && d.author.toLowerCase().includes("patient")))
+      )
+    : [];
+  const unreadPortalUploadsCount = patientPortalUploads.filter(
+    (d) => !d.isRead && d.status !== "Lu par le médecin" && d.status !== "Lu"
+  ).length;
   const patientInvoices = (
     invoices.length > 0 ? invoices : initialInvoices
   ).filter((i) => String(i.patientId) === String(patient?.id));
@@ -284,7 +297,33 @@ const PatientDetailsCabinet = () => {
     });
   };
 
+  const handleMarkDocRead = async (doc) => {
+    if (!doc) return;
+    const isAlreadyRead = doc.isRead || doc.status === "Lu par le médecin" || doc.status === "Lu";
+    if (isAlreadyRead) return;
+
+    // Décrémenter immédiatement le compteur dans le state React (mise à jour optimiste)
+    setAllDocuments((prev) =>
+      prev.map((d) =>
+        d.id === doc.id
+          ? { ...d, isRead: true, is_read: 1, status: "Lu par le médecin" }
+          : d
+      )
+    );
+
+    // Déclencher la mise à jour réactive du badge du menu latéral
+    window.dispatchEvent(new CustomEvent("portal_docs_updated"));
+
+    // Sauvegarde en base de données MySQL
+    try {
+      await ApiService.markDocumentAsRead(doc.id);
+    } catch (e) {
+      console.warn("Erreur marquage document lu:", e);
+    }
+  };
+
   const handleViewDoc = (doc) => {
+    handleMarkDocRead(doc);
     if (doc.fileDataUrl) {
       setPreviewingDoc(doc);
       return;
@@ -1702,6 +1741,58 @@ const PatientDetailsCabinet = () => {
           </svg>
           <span>Factures ( {patientInvoices.length} )</span>
         </button>
+
+        {/* Tab 7: Dépôts & Textes du Patient (depuis le portail public) */}
+        <button
+          type="button"
+          className={`patient-tab-btn ${activeTab === "portal_uploads" ? "active" : ""}`}
+          onClick={() => setActiveTab("portal_uploads")}
+          style={{
+            position: "relative",
+            ...(activeTab === "portal_uploads"
+              ? { borderBottom: "2px solid #0284c7", color: "#0284c7" }
+              : {}),
+          }}
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          >
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="17 8 12 3 7 8" />
+            <line x1="12" x2="12" y1="3" y2="15" />
+          </svg>
+          <span>Dépôts Patient ( {patientPortalUploads.length} )</span>
+          {unreadPortalUploadsCount > 0 && (
+            <span
+              className="badge badge-danger ms-2"
+              style={{
+                backgroundColor: "#ef4444",
+                color: "#ffffff",
+                fontSize: "11px",
+                fontWeight: "800",
+                padding: "2px 8px",
+                borderRadius: "12px",
+                boxShadow: "0 2px 6px rgba(239, 68, 68, 0.4)",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                minWidth: "20px",
+                height: "20px",
+                lineHeight: "1",
+              }}
+              title={`${unreadPortalUploadsCount} transmission(s) non lue(s)`}
+            >
+              {unreadPortalUploadsCount}
+            </span>
+          )}
+        </button>
       </div>
 
       {/* 5. TAB PANELS */}
@@ -2656,6 +2747,11 @@ const PatientDetailsCabinet = () => {
                               <small className="text-muted d-block">
                                 {doc.fileSize || "Document"} • {doc.type || "PDF"}
                               </small>
+                              {doc.notes && (
+                                <small className="text-info d-block fst-italic mt-1" style={{ fontSize: "11.5px" }}>
+                                  <i className="fa fa-comment-dots me-1"></i> "{doc.notes}"
+                                </small>
+                              )}
                               <div className="d-block d-md-none mt-1">
                                 <span className="badge badge-xs badge-info light me-1">{doc.category}</span>
                                 <span className="text-muted fs-11">{doc.date}</span>
@@ -2754,6 +2850,266 @@ const PatientDetailsCabinet = () => {
             </div>
           </div>
         )}
+
+        {/* PANEL 7: DÉPÔTS & TEXTES DU PATIENT DEPUIS LE SITE PUBLIC */}
+        {activeTab === "portal_uploads" && (
+          <div className="patient-panel-card">
+            <div className="patient-panel-card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+              <div>
+                <h3 className="patient-panel-card-title d-flex align-items-center gap-2">
+                  <i className="fa fa-cloud-download-alt text-primary"></i>
+                  <span>Documents & Textes déposés par le patient</span>
+                </h3>
+                <p className="text-muted fs-12 mb-0">
+                  Transmissions directes, documents joints, bilans et messages rédigés par le patient depuis le portail web
+                </p>
+              </div>
+              <span className="badge badge-info light fs-12 px-3 py-2" style={{ borderRadius: "8px", fontWeight: "600" }}>
+                {patientPortalUploads.length} transmission{patientPortalUploads.length > 1 ? "s" : ""} reçue{patientPortalUploads.length > 1 ? "s" : ""}
+              </span>
+            </div>
+
+            <div className="p-3">
+              {patientPortalUploads.length === 0 ? (
+                <div className="text-center py-5">
+                  <div
+                    style={{
+                      width: "60px",
+                      height: "60px",
+                      borderRadius: "50%",
+                      background: "rgba(2, 132, 199, 0.08)",
+                      color: "#0284c7",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: "24px",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <i className="fa fa-inbox"></i>
+                  </div>
+                  <h5 className="font-w600 text-dark mb-1">Aucun document ou texte déposé</h5>
+                  <p className="text-muted fs-13 mb-0" style={{ maxWidth: "420px", margin: "0 auto" }}>
+                    Lorsque le patient dépose un document (analyse, radio, compte-rendu) ou rédige un texte depuis son espace patient public, il apparaîtra ici avec son contenu intégral.
+                  </p>
+                </div>
+              ) : (
+                <div className="d-flex flex-column gap-3">
+                  {patientPortalUploads.map((doc) => {
+                    const isImg =
+                      doc.isImage ||
+                      ["JPG", "JPEG", "PNG", "WEBP", "GIF"].includes((doc.type || doc.fileType || "").toUpperCase()) ||
+                      (doc.fileDataUrl && doc.fileDataUrl.startsWith("data:image"));
+
+                    return (
+                      <div
+                        key={doc.id}
+                        style={{
+                          background: "#ffffff",
+                          border: "1px solid #e2e8f0",
+                          borderLeft: "4px solid #0284c7",
+                          borderRadius: "12px",
+                          padding: "16px",
+                          boxShadow: "0 2px 8px rgba(0, 0, 0, 0.04)",
+                          transition: "all 0.2s ease",
+                        }}
+                      >
+                        {/* En-tête de la transmission */}
+                        <div className="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+                          <div>
+                            <div className="d-flex align-items-center gap-2 flex-wrap">
+                              <h5 className="font-w700 text-dark mb-0 fs-15">{doc.title}</h5>
+                              <span className="badge badge-primary light fs-11" style={{ borderRadius: "6px" }}>
+                                {doc.category || "Autre"}
+                              </span>
+                              {!doc.isRead && doc.status !== "Lu par le médecin" && doc.status !== "Lu" ? (
+                                <span
+                                  className="badge badge-danger"
+                                  onClick={() => handleMarkDocRead(doc)}
+                                  style={{
+                                    backgroundColor: "#ef4444",
+                                    color: "#ffffff",
+                                    borderRadius: "6px",
+                                    padding: "3px 8px",
+                                    fontSize: "11px",
+                                    fontWeight: "700",
+                                    cursor: "pointer",
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "4px",
+                                  }}
+                                  title="Cliquer pour marquer comme lu"
+                                >
+                                  <i className="fa fa-envelope"></i>
+                                  <span>Nouveau (Non lu)</span>
+                                </span>
+                              ) : (
+                                <span
+                                  className="badge badge-success light"
+                                  style={{ borderRadius: "6px", fontSize: "11px" }}
+                                >
+                                  <i className="fa fa-check me-1"></i> Lu par le médecin
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-muted fs-12 mt-1">
+                              <i className="fa fa-calendar-alt me-1 text-primary"></i> {doc.date}
+                              {doc.author && (
+                                <>
+                                  <span className="mx-2">•</span>
+                                  <i className="fa fa-user me-1 text-secondary"></i> {doc.author}
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Boutons d'action */}
+                          <div className="d-flex align-items-center gap-2">
+                            {!doc.isRead && doc.status !== "Lu par le médecin" && doc.status !== "Lu" && (
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-outline-success d-flex align-items-center gap-1"
+                                onClick={() => handleMarkDocRead(doc)}
+                                title="Marquer ce message/document comme lu"
+                              >
+                                <i className="fa fa-check"></i>
+                                <span>Marquer comme lu</span>
+                              </button>
+                            )}
+                            {(doc.fileDataUrl || doc.filePath) && (
+                              <>
+                                <button
+                                  type="button"
+                                  className="btn btn-xs btn-outline-info d-flex align-items-center gap-1"
+                                  onClick={() => handleViewDoc(doc)}
+                                  title="Visualiser le document"
+                                >
+                                  <i className="fa fa-eye"></i>
+                                  <span>Voir</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn btn-xs btn-outline-primary d-flex align-items-center gap-1"
+                                  onClick={() => handleDownloadDoc(doc)}
+                                  title="Télécharger le fichier"
+                                >
+                                  <i className="fa fa-download"></i>
+                                  <span>Télécharger</span>
+                                </button>
+                              </>
+                            )}
+                            <button
+                              type="button"
+                              className="btn btn-xs btn-outline-danger"
+                              onClick={() => handleDeleteDocument(doc.id, doc.title)}
+                              title="Supprimer cette transmission"
+                            >
+                              <i className="fa fa-trash"></i>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Zone Texte / Message rédigé par le patient */}
+                        {doc.notes ? (
+                          <div
+                            style={{
+                              background: "#f0fdf4",
+                              border: "1px solid #bbf7d0",
+                              borderRadius: "10px",
+                              padding: "12px 14px",
+                              marginTop: "10px",
+                              marginBottom: doc.filePath || doc.fileDataUrl ? "10px" : "0",
+                            }}
+                          >
+                            <div className="d-flex align-items-center gap-2 text-success font-w600 fs-12 mb-1">
+                              <i className="fa fa-comment-dots"></i>
+                              <span>Message / Remarque du patient :</span>
+                            </div>
+                            <div
+                              style={{
+                                color: "#1e293b",
+                                fontSize: "13.5px",
+                                whiteSpace: "pre-wrap",
+                                lineHeight: "1.5",
+                              }}
+                            >
+                              {doc.notes}
+                            </div>
+                          </div>
+                        ) : null}
+
+                        {/* Fichier joint ou indicateur */}
+                        {doc.fileDataUrl || doc.filePath ? (
+                          <div
+                            className="d-flex align-items-center gap-3 p-2 px-3 mt-2"
+                            style={{
+                              background: "#f8fafc",
+                              border: "1px solid #e2e8f0",
+                              borderRadius: "8px",
+                            }}
+                          >
+                            {isImg ? (
+                              <div
+                                style={{
+                                  width: "44px",
+                                  height: "44px",
+                                  borderRadius: "6px",
+                                  overflow: "hidden",
+                                  cursor: "pointer",
+                                  flexShrink: 0,
+                                }}
+                                onClick={() => handleViewDoc(doc)}
+                                title="Agrandir l'image"
+                              >
+                                <img
+                                  src={doc.fileDataUrl || doc.filePath}
+                                  alt=""
+                                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                                />
+                              </div>
+                            ) : (
+                              <div
+                                style={{
+                                  width: "38px",
+                                  height: "38px",
+                                  borderRadius: "6px",
+                                  background: "#eff6ff",
+                                  color: "#2563eb",
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  fontSize: "16px",
+                                  flexShrink: 0,
+                                }}
+                              >
+                                <i className="fa fa-file-pdf"></i>
+                              </div>
+                            )}
+
+                            <div className="flex-grow-1 min-w-0">
+                              <div className="font-w600 text-dark fs-13 text-truncate">
+                                {doc.fileName || doc.title}
+                              </div>
+                              <small className="text-muted fs-11">
+                                {doc.fileSize || "Fichier joint"} • {doc.type || doc.fileType || "Document"}
+                              </small>
+                            </div>
+                          </div>
+                        ) : (
+                          !doc.notes && (
+                            <div className="text-muted fs-12 fst-italic mt-2">
+                              Transmission textuelle sans document joint
+                            </div>
+                          )
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Modal Prévisualisation & Impression Officielle d'Ordonnance */}
@@ -2794,6 +3150,28 @@ const PatientDetailsCabinet = () => {
             ></button>
           </div>
           <div className="modal-body text-center p-4">
+            {previewingDoc.notes && (
+              <div
+                style={{
+                  textAlign: "left",
+                  background: "#f0fdf4",
+                  border: "1px solid #bbf7d0",
+                  borderLeft: "4px solid #16a34a",
+                  borderRadius: "10px",
+                  padding: "12px 16px",
+                  marginBottom: "16px",
+                  whiteSpace: "pre-wrap",
+                  fontSize: "13.5px",
+                  color: "#1e293b",
+                  lineHeight: "1.5",
+                }}
+              >
+                <div style={{ fontWeight: "700", marginBottom: "6px", color: "#16a34a", fontSize: "11.5px", textTransform: "uppercase", letterSpacing: "0.5px" }}>
+                  <i className="fa fa-comment-dots me-1"></i> Message / Texte écrit par le patient :
+                </div>
+                {previewingDoc.notes}
+              </div>
+            )}
             {previewingDoc.fileDataUrl && (previewingDoc.isImage || ["JPG", "JPEG", "PNG", "WEBP"].includes((previewingDoc.type || "").toUpperCase())) ? (
               <img
                 src={previewingDoc.fileDataUrl}

@@ -7,6 +7,35 @@ const MedicalRecordsPage = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [patients, setPatients] = useState([]);
   const [consultations, setConsultations] = useState([]);
+  const [unreadMap, setUnreadMap] = useState({});
+  const [totalUnread, setTotalUnread] = useState(0);
+
+  const loadUnreadDocs = async () => {
+    try {
+      const allDocs = await ApiService.getDocuments();
+      if (Array.isArray(allDocs)) {
+        const map = {};
+        let total = 0;
+        allDocs.forEach((d) => {
+          const isPortal =
+            (d.status && d.status.toLowerCase().includes("patient")) ||
+            (d.author && d.author.toLowerCase().includes("patient")) ||
+            d.fileType === "TEXTE" ||
+            d.fileType === "NOTE";
+          const isUnread = !d.isRead && d.status !== "Lu par le médecin" && d.status !== "Lu";
+
+          if (isPortal && isUnread && d.patientId) {
+            map[d.patientId] = (map[d.patientId] || 0) + 1;
+            total++;
+          }
+        });
+        setUnreadMap(map);
+        setTotalUnread(total);
+      }
+    } catch (e) {
+      console.warn("Erreur chargement dépôts non lus :", e);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -35,8 +64,14 @@ const MedicalRecordsPage = () => {
       }
     };
     fetchData();
+    loadUnreadDocs();
+    const handleUpdate = () => loadUnreadDocs();
+    window.addEventListener("portal_docs_updated", handleUpdate);
+    const interval = setInterval(loadUnreadDocs, 15000);
     return () => {
       isMounted = false;
+      window.removeEventListener("portal_docs_updated", handleUpdate);
+      clearInterval(interval);
     };
   }, []);
 
@@ -58,17 +93,40 @@ const MedicalRecordsPage = () => {
 
       {/* Barre d'action et recherche */}
       <div className="form-head d-flex mb-3 mb-md-4 align-items-center flex-wrap justify-content-between gap-2">
-        <div className="input-group search-area" style={{ width: "auto", minWidth: "260px" }}>
-          <input
-            type="text"
-            className="form-control"
-            placeholder="Rechercher par dossier, nom, n° sécu..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-          <span className="input-group-text">
-            <i className="flaticon-381-search-2"></i>
-          </span>
+        <div className="d-flex align-items-center gap-2 flex-wrap">
+          <div className="input-group search-area" style={{ width: "auto", minWidth: "260px" }}>
+            <input
+              type="text"
+              className="form-control"
+              placeholder="Rechercher par dossier, nom, n° sécu..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+            <span className="input-group-text">
+              <i className="flaticon-381-search-2"></i>
+            </span>
+          </div>
+          {totalUnread > 0 && (
+            <span
+              className="badge badge-danger"
+              style={{
+                backgroundColor: "#ef4444",
+                color: "#ffffff",
+                fontSize: "12px",
+                fontWeight: "800",
+                padding: "6px 12px",
+                borderRadius: "10px",
+                boxShadow: "0 2px 8px rgba(239, 68, 68, 0.4)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "6px",
+              }}
+              title={`${totalUnread} transmission(s) non lue(s) reçue(s) depuis le portail public`}
+            >
+              <i className="fa fa-bell"></i>
+              <span>{totalUnread} dépôt{totalUnread > 1 ? "s" : ""} patient non lu{totalUnread > 1 ? "s" : ""}</span>
+            </span>
+          )}
         </div>
 
         <Link to="/admin/patients" className="btn btn-primary btn-rounded ms-auto">
@@ -145,10 +203,27 @@ const MedicalRecordsPage = () => {
                     <span className="record-file-code mb-1">
                       {p.fileNumber}
                     </span>
-                    <h4 className="card-title mb-0">
-                      <Link to={`/patient-details?id=${p.id}`} className="hover-primary">
+                    <h4 className="card-title mb-0 d-flex align-items-center flex-wrap gap-2">
+                      <Link to={`/admin/patient-details?id=${p.id}`} className="hover-primary">
                         {p.lastName.toUpperCase()} {p.firstName}
                       </Link>
+                      {unreadMap[p.id] > 0 && (
+                        <span
+                          className="badge badge-danger"
+                          style={{
+                            backgroundColor: "#ef4444",
+                            color: "#ffffff",
+                            fontSize: "11px",
+                            fontWeight: "800",
+                            padding: "2px 7px",
+                            borderRadius: "10px",
+                            boxShadow: "0 2px 6px rgba(239, 68, 68, 0.4)",
+                          }}
+                          title={`${unreadMap[p.id]} nouveau(x) document(s) / texte(s) non lu(s)`}
+                        >
+                          {unreadMap[p.id]}
+                        </span>
+                      )}
                     </h4>
                     <p className="text-muted fs-12 mb-0">
                       {p.gender} • Né(e) le {p.dob} ({p.age || 35} ans) • Groupe {p.bloodGroup}

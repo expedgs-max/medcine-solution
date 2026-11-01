@@ -6,6 +6,7 @@ import { MenuList } from './Menu';
 import { ThemeContext } from "../../../context/ThemeContext";
 import { useScrollPosition } from "@n8tb1t/use-scroll-position";
 import { navtoggle } from "../../../store/actions/AuthActions";
+import ApiService from "../../../services/ApiService";
 
 const reducer = (previousState, updatedState) => ({
   ...previousState,
@@ -30,6 +31,27 @@ const SideBar = () => {
   const date = new Date();
   const location = useLocation();
   const [state, setState] = useReducer(reducer, initialState);
+
+  // Compteur dynamique de dépôts non lus (rouge)
+  const [unreadDocsCount, setUnreadDocsCount] = useState(0);
+
+  const refreshUnreadCount = useCallback(async () => {
+    try {
+      const count = await ApiService.getUnreadDocumentsCount();
+      setUnreadDocsCount(count);
+    } catch (e) {}
+  }, []);
+
+  useEffect(() => {
+    refreshUnreadCount();
+    const handleUpdate = () => refreshUnreadCount();
+    window.addEventListener("portal_docs_updated", handleUpdate);
+    const interval = setInterval(refreshUnreadCount, 15000);
+    return () => {
+      window.removeEventListener("portal_docs_updated", handleUpdate);
+      clearInterval(interval);
+    };
+  }, [refreshUnreadCount]);
 
   const handleMobileNavClick = () => {
     if (window.innerWidth <= 768 && sideMenu) {
@@ -158,10 +180,28 @@ const SideBar = () => {
                         {data.iconStyle}{" "}
                         <span className="nav-text">
                           {data.title}
-                          {data.update && (
-                            <span className="badge badge-xs style-1 badge-danger ms-2">
-                              {data.update}
+                          {(data.title === "Dossiers médicaux" || data.title === "Patients") && unreadDocsCount > 0 ? (
+                            <span
+                              className="badge badge-danger ms-2"
+                              style={{
+                                backgroundColor: "#ef4444",
+                                color: "#ffffff",
+                                fontSize: "10.5px",
+                                fontWeight: "800",
+                                padding: "2px 7px",
+                                borderRadius: "10px",
+                                boxShadow: "0 2px 6px rgba(239, 68, 68, 0.4)",
+                              }}
+                              title={`${unreadDocsCount} nouveau(x) document(s) / texte(s) déposé(s)`}
+                            >
+                              {unreadDocsCount}
                             </span>
+                          ) : (
+                            data.update && (
+                              <span className="badge badge-xs style-1 badge-danger ms-2">
+                                {data.update}
+                              </span>
+                            )
                           )}
                         </span>
                       </Link>
@@ -238,10 +278,28 @@ const SideBar = () => {
                       {data.iconStyle}{" "}
                       <span className="nav-text">
                         {data.title}
-                        {data.update && (
-                          <span className="badge badge-xs style-1 badge-danger ms-2">
-                            {data.update}
+                        {(data.title === "Dossiers médicaux" || data.title === "Patients") && unreadDocsCount > 0 ? (
+                          <span
+                            className="badge badge-danger ms-2"
+                            style={{
+                              backgroundColor: "#ef4444",
+                              color: "#ffffff",
+                              fontSize: "10.5px",
+                              fontWeight: "800",
+                              padding: "2px 7px",
+                              borderRadius: "10px",
+                              boxShadow: "0 2px 6px rgba(239, 68, 68, 0.4)",
+                            }}
+                            title={`${unreadDocsCount} nouveau(x) document(s) / texte(s) déposé(s)`}
+                          >
+                            {unreadDocsCount}
                           </span>
+                        ) : (
+                          data.update && (
+                            <span className="badge badge-xs style-1 badge-danger ms-2">
+                              {data.update}
+                            </span>
+                          )
                         )}
                       </span>
                     </Link>

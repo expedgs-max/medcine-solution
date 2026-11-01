@@ -32,6 +32,35 @@ const PatientsPage = () => {
   const [patients, setPatients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [unreadMap, setUnreadMap] = useState({});
+  const [totalUnread, setTotalUnread] = useState(0);
+
+  const loadUnreadDocs = async () => {
+    try {
+      const allDocs = await ApiService.getDocuments();
+      if (Array.isArray(allDocs)) {
+        const map = {};
+        let total = 0;
+        allDocs.forEach((d) => {
+          const isPortal =
+            (d.status && d.status.toLowerCase().includes("patient")) ||
+            (d.author && d.author.toLowerCase().includes("patient")) ||
+            d.fileType === "TEXTE" ||
+            d.fileType === "NOTE";
+          const isUnread = !d.isRead && d.status !== "Lu par le médecin" && d.status !== "Lu";
+
+          if (isPortal && isUnread && d.patientId) {
+            map[d.patientId] = (map[d.patientId] || 0) + 1;
+            total++;
+          }
+        });
+        setUnreadMap(map);
+        setTotalUnread(total);
+      }
+    } catch (e) {
+      console.warn("Erreur chargement dépôts non lus :", e);
+    }
+  };
   const [filterStatus, setFilterStatus] = useState("all");
 
   const [showModal, setShowModal] = useState(false);
@@ -75,6 +104,14 @@ const PatientsPage = () => {
 
   useEffect(() => {
     loadPatients();
+    loadUnreadDocs();
+    const handleUpdate = () => loadUnreadDocs();
+    window.addEventListener("portal_docs_updated", handleUpdate);
+    const interval = setInterval(loadUnreadDocs, 15000);
+    return () => {
+      window.removeEventListener("portal_docs_updated", handleUpdate);
+      clearInterval(interval);
+    };
   }, []);
 
   const handleOpenAdd = () => {
@@ -535,7 +572,26 @@ const PatientsPage = () => {
       <div className="card">
         <div className="card-header border-0 pb-0">
           <div>
-            <h4 className="card-title">Répertoire des Patients du Cabinet</h4>
+            <h4 className="card-title d-flex align-items-center flex-wrap gap-2">
+              <span>Répertoire des Patients du Cabinet</span>
+              {totalUnread > 0 && (
+                <span
+                  className="badge badge-danger ms-2"
+                  style={{
+                    backgroundColor: "#ef4444",
+                    color: "#ffffff",
+                    fontSize: "12px",
+                    fontWeight: "800",
+                    padding: "3px 9px",
+                    borderRadius: "10px",
+                    boxShadow: "0 2px 6px rgba(239, 68, 68, 0.4)",
+                  }}
+                  title={`${totalUnread} transmission(s) non lue(s) reçue(s) depuis le site public`}
+                >
+                  {totalUnread} nouveau{totalUnread > 1 ? "x" : ""} dépôt{totalUnread > 1 ? "s" : ""}
+                </span>
+              )}
+            </h4>
             <p className="text-muted fs-13 mb-0">
               {filteredPatients.length} patient(s) répertorié(s)
             </p>
@@ -570,12 +626,31 @@ const PatientsPage = () => {
                   filteredPatients.map((p) => (
                     <tr key={p.id}>
                       <td>
-                        <Link
-                          to={`/patient-details?id=${p.id}`}
-                          className="font-w600 text-dark hover-primary"
-                        >
-                          {(p.lastName || "").toUpperCase()} {p.firstName || ""}
-                        </Link>
+                        <div className="d-flex align-items-center flex-wrap gap-1">
+                          <Link
+                            to={`/patient-details?id=${p.id}`}
+                            className="font-w600 text-dark hover-primary"
+                          >
+                            {(p.lastName || "").toUpperCase()} {p.firstName || ""}
+                          </Link>
+                          {unreadMap[p.id] > 0 && (
+                            <span
+                              className="badge badge-danger ms-1"
+                              style={{
+                                backgroundColor: "#ef4444",
+                                color: "#ffffff",
+                                fontSize: "11px",
+                                fontWeight: "800",
+                                padding: "2px 7px",
+                                borderRadius: "10px",
+                                boxShadow: "0 2px 6px rgba(239, 68, 68, 0.4)",
+                              }}
+                              title={`${unreadMap[p.id]} nouveau(x) document(s) / texte(s) non lu(s)`}
+                            >
+                              {unreadMap[p.id]}
+                            </span>
+                          )}
+                        </div>
                         <div className="d-flex align-items-center gap-2 mt-1 flex-wrap">
                           <span className="text-muted fs-12">
                             {p.gender || "—"}
@@ -670,8 +745,23 @@ const PatientsPage = () => {
                     className="p-3 border-bottom d-flex justify-content-between align-items-center"
                     style={{ backgroundColor: "#f8fafc" }}
                   >
-                    <span className="font-w700 text-dark fs-14">
-                      {(p.lastName || "").toUpperCase()} {p.firstName || ""}
+                    <span className="font-w700 text-dark fs-14 d-flex align-items-center gap-1">
+                      <span>{(p.lastName || "").toUpperCase()} {p.firstName || ""}</span>
+                      {unreadMap[p.id] > 0 && (
+                        <span
+                          className="badge badge-danger ms-1"
+                          style={{
+                            backgroundColor: "#ef4444",
+                            color: "#ffffff",
+                            fontSize: "10px",
+                            fontWeight: "800",
+                            padding: "2px 6px",
+                            borderRadius: "10px",
+                          }}
+                        >
+                          {unreadMap[p.id]}
+                        </span>
+                      )}
                     </span>
                     <span
                       className="badge badge-xs badge-info light"

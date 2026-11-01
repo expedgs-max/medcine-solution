@@ -56,13 +56,26 @@ function generatePatientPassword($lastName, $firstName, $phone) {
 
 function formatPhotoUrl($rawPhoto) {
     if (empty($rawPhoto)) return null;
-    if (str_starts_with($rawPhoto, 'data:') || str_starts_with($rawPhoto, 'http://') || str_starts_with($rawPhoto, 'https://')) {
+    if (str_starts_with($rawPhoto, 'data:') || str_starts_with($rawPhoto, 'blob:')) {
         return $rawPhoto;
     }
+
+    $scriptName = $_SERVER['SCRIPT_NAME'] ?? '';
+    $scriptDir = dirname(dirname($scriptName));
+    $backendPrefix = ($scriptDir === '/' || $scriptDir === '\\' || $scriptDir === '.') ? '' : $scriptDir;
+
+    // Si c'est déjà une URL absolue http(s)
+    if (str_starts_with($rawPhoto, 'http://') || str_starts_with($rawPhoto, 'https://')) {
+        if (!empty($backendPrefix) && strpos($rawPhoto, '/uploads/') !== false && strpos($rawPhoto, $backendPrefix . '/uploads/') === false) {
+            return str_replace('/uploads/', $backendPrefix . '/uploads/', $rawPhoto);
+        }
+        return $rawPhoto;
+    }
+
     $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? 'https' : 'http';
     $host = $_SERVER['HTTP_HOST'] ?? '127.0.0.1:8000';
-    $baseUrl = $scheme . '://' . $host;
-    return $baseUrl . '/' . ltrim($rawPhoto, '/');
+    $baseUrl = $scheme . '://' . $host . $backendPrefix;
+    return rtrim($baseUrl, '/') . '/' . ltrim($rawPhoto, '/');
 }
 
 function handleUploadPatientPhoto($db) {
@@ -127,7 +140,18 @@ function handleUploadPatientPhoto($db) {
             "photo" => $formattedUrl
         ], "Photo de profil mise à jour avec succès");
     } catch (Exception $e) {
-        sendResponse("error", null, "Erreur enregistrement photo : " . $e->getMessage(), 500);
+        try {
+            $db->exec("ALTER TABLE patients ADD COLUMN photo LONGTEXT NULL AFTER email");
+            $stmt = $db->prepare("UPDATE patients SET photo = :photo WHERE id = :id");
+            $stmt->execute([':photo' => $photoValue, ':id' => $patientId]);
+            $formattedUrl = formatPhotoUrl($photoValue);
+            sendResponse("success", [
+                "id" => $patientId,
+                "photo" => $formattedUrl
+            ], "Photo de profil mise à jour avec succès");
+        } catch (Exception $e2) {
+            sendResponse("error", null, "Erreur enregistrement photo : " . $e->getMessage(), 500);
+        }
     }
 }
 
