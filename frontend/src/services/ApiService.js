@@ -266,6 +266,41 @@ export const ApiService = {
   },
 
   // ----------------------------------------------------
+  // RÔLES ET HABILITATIONS D'ACCÈS MYSQL (STAFF_ROLES)
+  // ----------------------------------------------------
+  async getRoles() {
+    try {
+      const res = await apiClient.get("/roles.php");
+      if (res.data && res.data.status === "success" && Array.isArray(res.data.data)) {
+        return res.data.data;
+      }
+    } catch (err) {
+      console.warn("Backend PHP non disponible pour les rôles :", err.message);
+    }
+    return null;
+  },
+
+  async saveRole(roleData) {
+    try {
+      const res = await apiClient.post("/roles.php", roleData);
+      return res.data;
+    } catch (err) {
+      console.error("Erreur enregistrement rôle dans MySQL :", err.message);
+      throw err;
+    }
+  },
+
+  async deleteRole(id) {
+    try {
+      const res = await apiClient.delete(`/roles.php?id=${id}`);
+      return res.data;
+    } catch (err) {
+      console.error("Erreur suppression rôle dans MySQL :", err.message);
+      throw err;
+    }
+  },
+
+  // ----------------------------------------------------
   // CONSULTATIONS
   // ----------------------------------------------------
   async getConsultations() {

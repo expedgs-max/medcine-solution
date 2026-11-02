@@ -152,11 +152,14 @@ function handleCreateAppointment($db) {
 
         // Si un patientId est fourni mais que patientName est vide, récupérer le nom depuis la table patients
         if ($patientId && empty($patientName)) {
-            $find = $db->prepare("SELECT CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')) AS full_name FROM patients WHERE id = :id LIMIT 1");
+            $find = $db->prepare("SELECT CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, '')) AS full_name, email FROM patients WHERE id = :id LIMIT 1");
             $find->execute([':id' => $patientId]);
             $existing = $find->fetch(PDO::FETCH_ASSOC);
             if ($existing && !empty(trim($existing['full_name']))) {
                 $patientName = trim($existing['full_name']);
+            }
+            if ($existing && empty($patientEmail) && !empty(trim($existing['email'] ?? ''))) {
+                $patientEmail = trim($existing['email']);
             }
         }
 
@@ -205,6 +208,19 @@ function handleCreateAppointment($db) {
                 ':reason' => $body['reason'] ?? 'Consultation générale'
             ]);
         }
+
+        // Notification SMTP (Si le patient n'a pas saisi d'email, envoi vers l'admin)
+        sendAppointmentEmailNotification($db, [
+            'id' => $newId,
+            'ticketNumber' => $ticketNo,
+            'patientName' => $patientName,
+            'patientPhone' => $patientPhone,
+            'patientEmail' => $patientEmail,
+            'date' => $date,
+            'time' => substr($time, 0, 5),
+            'status' => $body['status'] ?? 'Confirmé',
+            'reason' => $reason
+        ]);
 
         sendResponse("success", [
             "id" => $newId,
@@ -312,6 +328,34 @@ function handleUpdateAppointment($db) {
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
 
+        // Notification SMTP si le statut passe à Confirmé (si patient sans email -> envoi admin)
+        if (isset($body['status']) && $body['status'] === 'Confirmé') {
+            $aptQ = $db->prepare("
+                SELECT a.*, 
+                       COALESCE(CONCAT(p.first_name, ' ', p.last_name), a.patient_name, 'Patient') AS full_patient_name,
+                       COALESCE(p.phone, a.patient_phone, '') AS full_patient_phone,
+                       COALESCE(p.email, a.patient_email, '') AS full_patient_email
+                FROM appointments a
+                LEFT JOIN patients p ON a.patient_id = p.id
+                WHERE a.id = :id
+            ");
+            $aptQ->execute([':id' => $id]);
+            $aptRow = $aptQ->fetch(PDO::FETCH_ASSOC);
+            if ($aptRow) {
+                sendAppointmentEmailNotification($db, [
+                    'id' => $id,
+                    'ticketNumber' => calculateTicketNumber($aptRow['appointment_time']),
+                    'patientName' => $aptRow['full_patient_name'],
+                    'patientPhone' => $aptRow['full_patient_phone'],
+                    'patientEmail' => $aptRow['full_patient_email'],
+                    'date' => $aptRow['appointment_date'],
+                    'time' => substr($aptRow['appointment_time'], 0, 5),
+                    'status' => 'Confirmé',
+                    'reason' => $aptRow['reason'] ?? 'Consultation générale'
+                ]);
+            }
+        }
+
         // Si le statut passe à Arrivé, synchroniser automatiquement avec la salle d'attente MySQL
         if (isset($body['status']) && $body['status'] === 'Arrivé') {
             $chkWait = $db->prepare("SELECT id FROM waiting_room WHERE appointment_id = :aid AND status != 'Terminé' LIMIT 1");
@@ -378,5 +422,106 @@ function handleDeleteAppointment($db) {
         sendResponse("success", null, "Rendez-vous annulé et supprimé de MySQL");
     } catch (Exception $e) {
         sendResponse("error", null, "Erreur suppression rendez-vous : " . $e->getMessage(), 500);
+    }
+}
+
+/**
+ * Envoie un email de notification pour un rendez-vous (création ou confirmation).
+ * RÈGLE : Si le patient n'a pas saisi d'adresse email, envoyer vers l'adresse email admin.
+ */
+function sendAppointmentEmailNotification($db, $info) {
+    try {
+        $stmt = $db->query("SELECT * FROM smtp_settings ORDER BY id ASC LIMIT 1");
+        $smtp = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$smtp || empty($smtp['enabled'])) {
+            return false;
+        }
+
+        $adminEmail = !empty($smtp['reply_to']) ? trim($smtp['reply_to']) : (!empty($smtp['username']) ? trim($smtp['username']) : 'dr.belbachir@cabinet-medical.dz');
+        $patientEmail = trim($info['patientEmail'] ?? '');
+
+        // RÈGLE : quand le patient n'entre pas d'email, envoyer vers l'admin
+        $isSentToAdmin = empty($patientEmail) || !filter_var($patientEmail, FILTER_VALIDATE_EMAIL);
+        $targetEmail = $isSentToAdmin ? $adminEmail : $patientEmail;
+
+        if (empty($targetEmail)) {
+            return false;
+        }
+
+        $patientName = !empty($info['patientName']) ? $info['patientName'] : 'Patient';
+        $patientPhone = !empty($info['patientPhone']) ? $info['patientPhone'] : 'Non renseigné';
+        $date = !empty($info['date']) ? $info['date'] : date('Y-m-d');
+        $time = !empty($info['time']) ? $info['time'] : '09:00';
+        $ticket = !empty($info['ticketNumber']) ? $info['ticketNumber'] : '1';
+        $reason = !empty($info['reason']) ? $info['reason'] : 'Consultation générale';
+        $status = !empty($info['status']) ? $info['status'] : 'Confirmé';
+
+        // Logo / En-tête textuel sobre officiel
+        $headerLogo = "الدكتورة ن. بلبشير ولد هنية\n"
+                    . "Cabinet Médical Dr N. BELBACHIR OULD HENNIA\n"
+                    . "Spécialiste en Gynécologie Obstétrique et Échographie\n"
+                    . "____________________________________________________\n\n";
+
+        if ($isSentToAdmin) {
+            $subject = "Notification Cabinet - RDV " . ($status === 'Confirmé' ? 'Confirmé' : 'en Attente') . " : {$patientName}";
+            $message = $headerLogo
+                     . "Bonjour Administration / Secrétariat,\n\n"
+                     . "Le patient n'a pas renseigné d'adresse email. Cette notification de rendez-vous a été transmise automatiquement au cabinet.\n\n"
+                     . "Détails du rendez-vous :\n"
+                     . "- Patient : {$patientName}\n"
+                     . "- Téléphone : {$patientPhone}\n"
+                     . "- Date : {$date}\n"
+                     . "- Heure : {$time}\n"
+                     . "- Numéro de ticket : #{$ticket}\n"
+                     . "- Motif : {$reason}\n"
+                     . "- Statut actuel : {$status}\n\n"
+                     . "Cabinet Médical Dr N. BELBACHIR OULD HENNIA\n"
+                     . "Adresse : Avenue Seghier Benali, Haï Essedikia, Oran\n"
+                     . "Téléphone : 06 97 03 71 09\n";
+        } else {
+            if ($status === 'En attente') {
+                $subject = "Demande de rendez-vous reçue - Cabinet Dr Belbachir";
+                $message = $headerLogo
+                         . "Bonjour {$patientName},\n\n"
+                         . "Nous avons bien reçu votre demande de rendez-vous pour le {$date} à {$time} (Ticket n° {$ticket}).\n\n"
+                         . "Votre demande est actuellement en cours de traitement. Vous recevrez un nouvel email dès que votre rendez-vous sera validé par le cabinet.\n\n"
+                         . "Cabinet Médical Dr N. BELBACHIR OULD HENNIA\n"
+                         . "Adresse : Avenue Seghier Benali, Haï Essedikia, Oran\n"
+                         . "Téléphone : 06 97 03 71 09\n";
+            } else {
+                $subject = "Confirmation de votre rendez-vous - Cabinet Dr Belbachir";
+                $message = $headerLogo
+                         . "Bonjour {$patientName},\n\n"
+                         . "Votre rendez-vous au cabinet est confirmé :\n\n"
+                         . "- Date : {$date}\n"
+                         . "- Heure : {$time}\n"
+                         . "- Numéro de ticket : #{$ticket}\n"
+                         . "- Praticien : Dr N. BELBACHIR OULD HENNIA\n"
+                         . "- Adresse : Avenue Seghier Benali, Haï Essedikia, Oran\n\n"
+                         . "Consignes pour votre venue :\n"
+                         . "Merci de vous présenter 10 minutes avant votre heure de passage et d'apporter vos éventuelles ordonnances et bilans récents.\n\n"
+                         . "En cas d'empêchement, merci de nous prévenir au 06 97 03 71 09.\n\n"
+                         . "Cordialement,\n"
+                         . "Cabinet Médical Dr N. BELBACHIR OULD HENNIA\n";
+            }
+        }
+
+        $fromName = !empty($smtp['from_name']) ? $smtp['from_name'] : 'Cabinet Medical Dr Belbachir';
+        $fromEmail = !empty($smtp['username']) ? $smtp['username'] : 'dr.belbachir@cabinet-medical.dz';
+
+        $headers = "From: =?UTF-8?B?" . base64_encode($fromName) . "?= <{$fromEmail}>\r\n"
+                 . "Reply-To: " . ($smtp['reply_to'] ?: $fromEmail) . "\r\n"
+                 . "MIME-Version: 1.0\r\n"
+                 . "Content-Type: text/plain; charset=UTF-8\r\n"
+                 . "Content-Transfer-Encoding: 8bit\r\n";
+
+        $encodedSubject = "=?UTF-8?B?" . base64_encode($subject) . "?=";
+
+        @mail($targetEmail, $encodedSubject, $message, $headers);
+        return true;
+    } catch (Exception $e) {
+        error_log("Erreur notification email RDV : " . $e->getMessage());
+        return false;
     }
 }

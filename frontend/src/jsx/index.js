@@ -306,11 +306,37 @@ function MainLayout(){
   const sideMenu = useSelector(state => state.sideMenu);
   const dispatch = useDispatch();
 
+  const location = useLocation();
+
   // Protection du panel administration : redirection si non connecté
-  const authUser = localStorage.getItem("cabinet_auth_user");
-  if (!authUser) {
+  const authUserStr = localStorage.getItem("cabinet_auth_user");
+  if (!authUserStr) {
     return <Navigate to="/login" replace />;
   }
+
+  // Contrôle d'accès basé sur les habilitations du rôle : redirection si module non autorisé
+  try {
+    const authUser = JSON.parse(authUserStr);
+    const isFullAdmin = authUser.type === "doctor" || authUser.roleId === "role-superadmin" || authUser.pages?.["*"];
+    if (!isFullAdmin) {
+      let userPages = authUser.pages;
+      if (!userPages) {
+        try {
+          const savedRoles = JSON.parse(localStorage.getItem("cabinet_staff_roles") || "[]");
+          const foundRole = savedRoles.find(r => r.id === authUser.roleId || r.name === authUser.role || r.name === authUser.roleName);
+          if (foundRole && foundRole.pages) userPages = foundRole.pages;
+        } catch (e) {}
+      }
+      if (userPages) {
+        const cleanPath = location.pathname.toLowerCase().replace(/^\/+|\/+$/g, "");
+        const currentModule = cleanPath.replace(/^admin\/?/, "").split("/")[0];
+        if (currentModule && userPages[currentModule] === false) {
+          const firstAllowed = Object.keys(userPages).find(k => userPages[k] === true) || "dashboard";
+          return <Navigate to={`/admin/${firstAllowed}`} replace />;
+        }
+      }
+    }
+  } catch (e) {}
 
   return (
     <>      

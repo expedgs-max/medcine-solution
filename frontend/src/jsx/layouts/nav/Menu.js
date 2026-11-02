@@ -27,7 +27,6 @@ export const MenuList = [
         iconStyle: <i className="flaticon-381-clock-1" />
     },
 
-
     // B. Gestion médicale
     {
         title: "GESTION MÉDICALE",
@@ -65,19 +64,16 @@ export const MenuList = [
         iconStyle: <i className="fa fa-cash-register" />
     },
 
-
-
     // D. Cabinet et configuration
     {
         title: "CABINET & CONFIGURATION",
         classsChange: "menu-title"
     },
     {
-        title: "Utilisateurs",
+        title: "Utilisateurs & Rôles",
         to: "admin/staff",
         iconStyle: <i className="flaticon-381-user-9" />
     },
-
     {
         title: "Paramètres",
         to: "admin/settings",

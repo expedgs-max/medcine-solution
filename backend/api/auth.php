@@ -89,6 +89,27 @@ function handleLogin($db, $input) {
         // Générer un jeton de session
         $token = bin2hex(random_bytes(32));
 
+        // Récupérer le rôle et ses habilitations de pages depuis staff_roles
+        $roleId = $user['role_id'] ?? ($user['type'] === 'doctor' ? 'role-superadmin' : 'role-secretary');
+        $pages = [];
+        $badgeColor = '#1e60d5';
+
+        try {
+            $stmtRole = $db->prepare("SELECT * FROM staff_roles WHERE id = :rid LIMIT 1");
+            $stmtRole->execute([':rid' => $roleId]);
+            $roleData = $stmtRole->fetch();
+            if ($roleData) {
+                $badgeColor = $roleData['badge_color'] ?? '#1e60d5';
+                if (!empty($roleData['pages_json'])) {
+                    $pages = json_decode($roleData['pages_json'], true) ?: [];
+                }
+            }
+        } catch (Exception $e) {}
+
+        if ($user['type'] === 'doctor' || $roleId === 'role-superadmin') {
+            $pages['*'] = true;
+        }
+
         $sessionUser = [
             'id' => (int)$user['id'],
             'username' => $user['username'] ?? ($user['type'] === 'doctor' ? 'admin' : 'secretaire'),
@@ -96,8 +117,12 @@ function handleLogin($db, $input) {
             'email' => $user['email'],
             'phone' => $user['phone'] ?? '',
             'role' => $user['role'],
+            'roleId' => $roleId,
+            'roleName' => $user['role'],
+            'badgeColor' => $badgeColor,
             'type' => $user['type'],
             'accessLevel' => $user['access_level'] ?? '',
+            'pages' => $pages,
             'permissions' => [
                 'agenda' => $user['permission_agenda'] ?? 'Plein accès',
                 'medicalRecords' => $user['permission_medical_records'] ?? 'Plein accès',

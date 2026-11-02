@@ -83,6 +83,72 @@ const SideBar = () => {
     [hideOnScroll]
   );
 
+  // Utilisateur connecté et contrôle d'accès basé sur les rôles & pages
+  const [authUser, setAuthUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem("cabinet_auth_user");
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return null;
+  });
+
+  useEffect(() => {
+    const handleAuthChange = () => {
+      try {
+        const stored = localStorage.getItem("cabinet_auth_user");
+        if (stored) setAuthUser(JSON.parse(stored));
+      } catch (e) {}
+    };
+    window.addEventListener("storage", handleAuthChange);
+    window.addEventListener("auth_user_updated", handleAuthChange);
+    return () => {
+      window.removeEventListener("storage", handleAuthChange);
+      window.removeEventListener("auth_user_updated", handleAuthChange);
+    };
+  }, []);
+
+  // Filtrer les éléments du menu selon les habilitations du rôle utilisateur
+  const filteredMenuList = React.useMemo(() => {
+    if (!authUser || authUser.type === "doctor" || authUser.roleId === "role-superadmin" || authUser.pages?.["*"]) {
+      return MenuList;
+    }
+
+    const result = [];
+    let currentTitleItem = null;
+    let currentSectionHasItems = false;
+
+    // Déterminer la liste des pages autorisées (directe ou fallback via le rôle)
+    let userPages = authUser.pages;
+    if (!userPages) {
+      try {
+        const savedRoles = JSON.parse(localStorage.getItem("cabinet_staff_roles") || "[]");
+        const foundRole = savedRoles.find(r => r.id === authUser.roleId || r.name === authUser.role || r.name === authUser.roleName);
+        if (foundRole && foundRole.pages) {
+          userPages = foundRole.pages;
+        }
+      } catch (e) {}
+    }
+
+    for (const item of MenuList) {
+      if (item.classsChange === "menu-title") {
+        currentTitleItem = item;
+        currentSectionHasItems = false;
+      } else {
+        const cleanTo = (item.to || "").replace(/^admin\/?/, "").replace(/^\//, "").split("/")[0];
+        const isAllowed = userPages ? Boolean(userPages[cleanTo]) : false;
+
+        if (isAllowed) {
+          if (currentTitleItem && !currentSectionHasItems) {
+            result.push(currentTitleItem);
+            currentSectionHasItems = true;
+          }
+          result.push(item);
+        }
+      }
+    }
+    return result;
+  }, [authUser]);
+
   // Détection réactive instantanée de la route active via useLocation()
   const cleanPathname = location.pathname.toLowerCase().replace(/^\/+|\/+$/g, "");
   const currentPath = cleanPathname === "" ? "admin/dashboard" : cleanPathname;
@@ -99,7 +165,7 @@ const SideBar = () => {
   }, [currentPath]);
 
   useEffect(() => {
-    MenuList.forEach((data) => {
+    filteredMenuList.forEach((data) => {
       if (data.content && data.content.length > 0) {
         data.content.forEach((item) => {        
           if (isRouteActive(item.to)) {         
@@ -145,7 +211,7 @@ const SideBar = () => {
         }}
       >
         <ul className="metismenu" id="menu" style={{ paddingBottom: "60px" }}>
-          {MenuList.map((data, index) => {
+          {filteredMenuList.map((data, index) => {
             let menuClass = data.classsChange;
             if (menuClass === "menu-title") {
               return (

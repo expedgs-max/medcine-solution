@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import { Badge } from "react-bootstrap";
 import Swal from "sweetalert2";
 import PageTitle from "../../layouts/PageTitle";
 import ApiService from "../../../services/ApiService";
@@ -127,6 +126,38 @@ export const SITE_PAGES = [
     description: "Tarification des actes, horaires et personnalisation du système",
   },
   {
+    id: "cashflow",
+    name: "Journal de Caisse",
+    path: "/cashflow",
+    category: "Financier",
+    icon: "fa fa-cash-register",
+    description: "Recettes, dépenses, solde de caisse et clôtures journalières",
+  },
+  {
+    id: "payments",
+    name: "Paiements & Encaissements",
+    path: "/payments",
+    category: "Financier",
+    icon: "flaticon-381-calculator-1",
+    description: "Suivi des règlements patients, encaissements et modes de paiement",
+  },
+  {
+    id: "smtp",
+    name: "Configuration SMTP",
+    path: "/smtp",
+    category: "Configuration",
+    icon: "flaticon-381-send",
+    description: "Serveur d'envoi d'emails, alertes automatiques et notifications",
+  },
+  {
+    id: "profile",
+    name: "Profil Praticien",
+    path: "/profile",
+    category: "Configuration",
+    icon: "flaticon-381-user-1",
+    description: "Profil personnel, spécialité médicale et coordonnées du praticien",
+  },
+  {
     id: "support",
     name: "Aide & Support",
     path: "/support",
@@ -142,21 +173,21 @@ export const DEFAULT_ROLES = [
     id: "role-superadmin",
     name: "Médecin Titulaire (Super Admin)",
     description: "Accès total et illimité à l'ensemble des modules médicaux, administratifs et de sécurité",
-    badgeColor: "primary",
+    badgeColor: "#1e60d5",
     isSystem: true,
     pages: SITE_PAGES.reduce((acc, p) => ({ ...acc, [p.id]: true }), {}),
   },
   {
     id: "role-secretary",
     name: "Secrétaire Médicale",
-    description: "Accueil physique, gestion de l'agenda, file d'attente et facturation (Secret médical protégé)",
-    badgeColor: "info",
+    description: "Accueil physique, gestion de l'agenda, file d'attente, encaissements et facturation (Secret médical protégé)",
+    badgeColor: "#0ea5e9",
     isSystem: false,
     pages: {
       dashboard: true,
       appointments: true,
       patients: true,
-      "patient-details": false,
+      "patient-details": true,
       "waiting-room": true,
       "affichage-salle-attente": true,
       consultations: false,
@@ -164,18 +195,22 @@ export const DEFAULT_ROLES = [
       prescriptions: false,
       "medical-documents": false,
       invoices: true,
+      cashflow: true,
+      payments: true,
       reports: false,
       staff: false,
       clinic: false,
       settings: false,
+      smtp: false,
+      profile: false,
       support: true,
     },
   },
   {
     id: "role-accountant",
-    name: "Gestionnaire Financier & Comptable",
-    description: "Gestion des factures, règlements, statistiques et bilans financiers",
-    badgeColor: "success",
+    name: "Comptable / Gestionnaire",
+    description: "Gestion de la caisse, encaissements, facturation et analyse des rapports financiers",
+    badgeColor: "#f59e0b",
     isSystem: false,
     pages: {
       dashboard: true,
@@ -189,10 +224,14 @@ export const DEFAULT_ROLES = [
       prescriptions: false,
       "medical-documents": false,
       invoices: true,
+      cashflow: true,
+      payments: true,
       reports: true,
       staff: false,
       clinic: false,
       settings: false,
+      smtp: false,
+      profile: false,
       support: true,
     },
   },
@@ -270,16 +309,28 @@ const StaffPage = ({ initialView = "list" }) => {
     return DEFAULT_ACCOUNTS;
   });
 
-  // Chargement initial depuis la base de données MySQL
+  // Chargement initial des rôles et utilisateurs depuis la base de données MySQL
   useEffect(() => {
-    const fetchStaffFromDb = async () => {
+    const fetchDbData = async () => {
+      // 1. Charger les rôles depuis MySQL
+      try {
+        const rolesData = await ApiService.getRoles();
+        if (Array.isArray(rolesData) && rolesData.length > 0) {
+          setRoles(rolesData);
+          localStorage.setItem("cabinet_staff_roles", JSON.stringify(rolesData));
+        }
+      } catch (err) {
+        console.warn("Erreur chargement rôles MySQL :", err);
+      }
+
+      // 2. Charger les comptes utilisateurs depuis MySQL
       try {
         const staffData = await ApiService.getStaff();
         if (Array.isArray(staffData) && staffData.length > 0) {
           const customAdminPass = localStorage.getItem("cabinet_admin_password") || "admin123";
           const mapped = staffData.map((s) => {
             const isDoctor = s.type === "doctor";
-            const username = isDoctor ? "admin" : (s.email ? s.email.split("@")[0] : `user${s.id}`);
+            const username = s.username || (isDoctor ? "admin" : (s.email ? s.email.split("@")[0] : `user${s.id}`));
             const existing = (accounts || DEFAULT_ACCOUNTS).find(
               (a) => a.id === s.id || a.username === username
             );
@@ -295,20 +346,22 @@ const StaffPage = ({ initialView = "list" }) => {
               password: actualPassword,
               email: s.email || "",
               phone: s.phone || "",
-              roleId: isDoctor ? "role-superadmin" : "role-secretary",
-              roleName: s.role || (isDoctor ? "Médecin Titulaire (Super Admin)" : "Secrétaire Médicale"),
+              roleId: s.roleId || (isDoctor ? "role-superadmin" : "role-secretary"),
+              roleName: s.roleName || s.role || (isDoctor ? "Médecin Titulaire (Super Admin)" : "Secrétaire Médicale"),
+              badgeColor: s.badgeColor || (isDoctor ? "#1e60d5" : "#0ea5e9"),
               status: s.status || "Actif",
-              type: s.type || "secretary",
+              type: s.type || (isDoctor ? "doctor" : "secretary"),
               createdAt: s.createdAt ? s.createdAt.split(" ")[0] : "2024-01-15",
             };
           });
           setAccounts(mapped);
+          localStorage.setItem("cabinet_staff_accounts", JSON.stringify(mapped));
         }
       } catch (err) {
         console.warn("Erreur chargement personnel MySQL :", err);
       }
     };
-    fetchStaffFromDb();
+    fetchDbData();
   }, []);
 
   // Sauvegardes synchronisées dans localStorage
@@ -339,7 +392,7 @@ const StaffPage = ({ initialView = "list" }) => {
   const [roleForm, setRoleForm] = useState({
     name: "",
     description: "",
-    badgeColor: "primary",
+    badgeColor: "#1e60d5",
     pages: SITE_PAGES.reduce((acc, p) => ({ ...acc, [p.id]: false }), {}),
   });
 
@@ -459,8 +512,11 @@ const StaffPage = ({ initialView = "list" }) => {
           username: cleanUsername,
           email: accountForm.email.trim() || `${cleanUsername}@cabinet.dz`,
           phone: accountForm.phone.trim(),
+          roleId: assignedRole.id,
+          role_id: assignedRole.id,
           role: assignedRole.name,
           roleName: assignedRole.name,
+          badgeColor: assignedRole.badgeColor,
           type: cleanUsername === "admin" ? "doctor" : "secretary",
           status: accountForm.status,
           accessLevel: assignedRole.name,
@@ -491,19 +547,25 @@ const StaffPage = ({ initialView = "list" }) => {
         };
         setAccounts((prev) => [newAcc, ...prev]);
 
-        // Enregistrement dans MySQL
-        await ApiService.saveStaffUser({
+        // Enregistrement direct dans MySQL
+        const saveRes = await ApiService.saveStaffUser({
           name: cleanName,
           username: cleanUsername,
           email: accountForm.email.trim() || `${cleanUsername}@cabinet.dz`,
           phone: accountForm.phone.trim(),
+          roleId: assignedRole.id,
+          role_id: assignedRole.id,
           role: assignedRole.name,
           roleName: assignedRole.name,
+          badgeColor: assignedRole.badgeColor,
           type: cleanUsername === "admin" ? "doctor" : "secretary",
           status: accountForm.status,
           accessLevel: assignedRole.name,
           password: cleanPass,
         });
+        if (saveRes?.data?.id) {
+          newAcc.id = saveRes.data.id;
+        }
 
         Swal.fire({
           icon: "success",
@@ -595,7 +657,7 @@ const StaffPage = ({ initialView = "list" }) => {
     setRoleForm({
       name: "",
       description: "",
-      badgeColor: "primary",
+      badgeColor: "#1e60d5",
       pages: SITE_PAGES.reduce((acc, p) => ({ ...acc, [p.id]: false }), {}),
     });
     setPageCategoryFilter("Tous");
@@ -619,7 +681,7 @@ const StaffPage = ({ initialView = "list" }) => {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleSaveRole = (e) => {
+  const handleSaveRole = async (e) => {
     e.preventDefault();
     const cleanName = roleForm.name.trim();
 
@@ -632,58 +694,60 @@ const StaffPage = ({ initialView = "list" }) => {
       return;
     }
 
-    if (editingRoleId) {
-      // Modification du rôle existant
-      setRoles((prev) =>
-        prev.map((r) =>
-          r.id === editingRoleId
-            ? {
-              ...r,
-              name: cleanName,
-              description: roleForm.description.trim(),
-              badgeColor: roleForm.badgeColor,
-              pages: roleForm.pages,
-            }
-            : r
-        )
-      );
+    const rolePayload = {
+      id: editingRoleId || undefined,
+      name: cleanName,
+      description: roleForm.description.trim(),
+      badgeColor: roleForm.badgeColor || "#1e60d5",
+      badge_color: roleForm.badgeColor || "#1e60d5",
+      pages: roleForm.pages,
+    };
 
-      // Mettre à jour le nom du rôle dans les comptes rattachés
-      setAccounts((prev) =>
-        prev.map((acc) =>
-          acc.roleId === editingRoleId ? { ...acc, roleName: cleanName } : acc
-        )
-      );
-
-      Swal.fire({
-        icon: "success",
-        title: "Rôle mis à jour",
-        text: `Les droits du rôle « ${cleanName} » ont été enregistrés.`,
-        timer: 1600,
-        showConfirmButton: false,
-      });
-    } else {
-      // Création d'un nouveau rôle
-      const newRole = {
-        id: "role-" + Date.now(),
+    try {
+      const res = await ApiService.saveRole(rolePayload);
+      const savedRole = res?.data || {
+        id: editingRoleId || ("role-" + Date.now()),
         name: cleanName,
         description: roleForm.description.trim(),
-        badgeColor: roleForm.badgeColor,
+        badgeColor: roleForm.badgeColor || "#1e60d5",
         isSystem: false,
         pages: roleForm.pages,
       };
-      setRoles((prev) => [...prev, newRole]);
+
+      if (editingRoleId) {
+        setRoles((prev) =>
+          prev.map((r) => (r.id === editingRoleId ? { ...r, ...savedRole } : r))
+        );
+        setAccounts((prev) =>
+          prev.map((acc) =>
+            acc.roleId === editingRoleId
+              ? { ...acc, roleName: cleanName, badgeColor: savedRole.badgeColor }
+              : acc
+          )
+        );
+      } else {
+        setRoles((prev) => [...prev, savedRole]);
+      }
+
       Swal.fire({
         icon: "success",
-        title: "Nouveau rôle créé",
-        text: `Le rôle « ${cleanName} » a été ajouté à la matrice des droits.`,
+        title: editingRoleId ? "Rôle mis à jour dans MySQL" : "Nouveau rôle créé dans MySQL",
+        text: `Le rôle « ${cleanName} » a été enregistré dans la base de données.`,
         timer: 1600,
         showConfirmButton: false,
       });
-    }
 
-    setViewMode("list");
-    window.scrollTo({ top: 0, behavior: "smooth" });
+      setViewMode("list");
+      setActiveTab("roles");
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (err) {
+      console.error("Erreur enregistrement rôle MySQL :", err);
+      Swal.fire({
+        icon: "error",
+        title: "Erreur d'enregistrement",
+        text: "Impossible d'enregistrer le rôle dans MySQL : " + (err.response?.data?.message || err.message),
+      });
+    }
   };
 
   const handleDeleteRole = (role) => {
@@ -709,23 +773,33 @@ const StaffPage = ({ initialView = "list" }) => {
 
     Swal.fire({
       title: `Supprimer le rôle ?`,
-      html: `Êtes-vous sûr de vouloir supprimer le rôle <b>« ${role.name} »</b> ?`,
+      html: `Êtes-vous sûr de vouloir supprimer définitivement le rôle <b>« ${role.name} »</b> de la base de données MySQL ?`,
       icon: "warning",
       showCancelButton: true,
       confirmButtonColor: "#d33",
       cancelButtonColor: "#6e7881",
       confirmButtonText: "Oui, supprimer le rôle",
       cancelButtonText: "Annuler",
-    }).then((result) => {
+    }).then(async (result) => {
       if (result.isConfirmed) {
-        setRoles((prev) => prev.filter((r) => r.id !== role.id));
-        Swal.fire({
-          icon: "success",
-          title: "Rôle supprimé",
-          text: `Le rôle « ${role.name} » a été retiré.`,
-          timer: 1500,
-          showConfirmButton: false,
-        });
+        try {
+          await ApiService.deleteRole(role.id);
+          setRoles((prev) => prev.filter((r) => r.id !== role.id));
+          Swal.fire({
+            icon: "success",
+            title: "Rôle supprimé de MySQL",
+            text: `Le rôle « ${role.name} » a été retiré de la base de données.`,
+            timer: 1500,
+            showConfirmButton: false,
+          });
+        } catch (err) {
+          console.error("Erreur suppression rôle MySQL :", err);
+          Swal.fire({
+            icon: "error",
+            title: "Erreur suppression",
+            text: err.response?.data?.message || "Impossible de supprimer ce rôle de la base de données.",
+          });
+        }
       }
     });
   };
@@ -1210,22 +1284,70 @@ const StaffPage = ({ initialView = "list" }) => {
                     </div>
 
                     <div className="col-md-5 mb-3">
-                      <label className="form-label font-w600 text-dark">
-                        Couleur du badge
+                      <label className="form-label font-w600 text-dark d-flex align-items-center justify-content-between mb-2">
+                        <span>Couleur du badge</span>
+                        <span
+                          className="d-inline-flex align-items-center px-2 py-0.5 rounded-pill fs-11 font-w600"
+                          style={{
+                            backgroundColor: (roleForm.badgeColor || "#1e60d5") + "18",
+                            color: roleForm.badgeColor || "#1e60d5",
+                            border: `1px solid ${(roleForm.badgeColor || "#1e60d5")}44`,
+                          }}
+                        >
+                          <span
+                            className="me-1"
+                            style={{
+                              display: "inline-block",
+                              width: "7px",
+                              height: "7px",
+                              borderRadius: "50%",
+                              backgroundColor: roleForm.badgeColor || "#1e60d5",
+                            }}
+                          />
+                          {roleForm.badgeColor || "#1e60d5"}
+                        </span>
                       </label>
-                      <select
-                        className="form-select"
-                        value={roleForm.badgeColor}
-                        onChange={(e) =>
-                          setRoleForm({ ...roleForm, badgeColor: e.target.value })
-                        }
-                      >
-                        <option value="primary">Bleu Primaire (Médecin / Titulaire)</option>
-                        <option value="info">Cyan / Info (Secrétariat)</option>
-                        <option value="success">Vert Succès (Comptabilité)</option>
-                        <option value="warning">Orange / Attention</option>
-                        <option value="secondary">Gris / Neutre</option>
-                      </select>
+                      <div className="d-flex align-items-center gap-2 flex-wrap p-2 border rounded bg-light">
+                        {[
+                          { hex: "#1e60d5", label: "Bleu Primaire" },
+                          { hex: "#0ea5e9", label: "Cyan Secrétariat" },
+                          { hex: "#10b981", label: "Vert Émeraude" },
+                          { hex: "#f59e0b", label: "Orange Comptable" },
+                          { hex: "#8b5cf6", label: "Violet Royal" },
+                          { hex: "#ef4444", label: "Rouge Corail" },
+                          { hex: "#ec4899", label: "Rose Fushia" },
+                          { hex: "#64748b", label: "Gris Ardoise" },
+                          { hex: "#0f172a", label: "Bleu Sombre" },
+                        ].map((c) => (
+                          <button
+                            key={c.hex}
+                            type="button"
+                            className="btn p-0 rounded-circle"
+                            style={{
+                              width: "26px",
+                              height: "26px",
+                              backgroundColor: c.hex,
+                              border: roleForm.badgeColor === c.hex ? "3px solid #1e293b" : "2px solid #ffffff",
+                              boxShadow: roleForm.badgeColor === c.hex ? "0 0 0 2px #0ea5e9" : "0 1px 3px rgba(0,0,0,0.2)",
+                              cursor: "pointer",
+                              transition: "transform 0.15s ease",
+                              transform: roleForm.badgeColor === c.hex ? "scale(1.15)" : "scale(1)",
+                            }}
+                            onClick={() => setRoleForm({ ...roleForm, badgeColor: c.hex })}
+                            title={c.label}
+                          />
+                        ))}
+                        <div className="d-flex align-items-center ms-auto gap-1">
+                          <input
+                            type="color"
+                            className="form-control form-control-color p-0 border-0"
+                            style={{ width: "28px", height: "28px", borderRadius: "50%", cursor: "pointer" }}
+                            value={roleForm.badgeColor && roleForm.badgeColor.startsWith("#") ? roleForm.badgeColor : "#1e60d5"}
+                            onChange={(e) => setRoleForm({ ...roleForm, badgeColor: e.target.value })}
+                            title="Palette de couleur personnalisée"
+                          />
+                        </div>
+                      </div>
                     </div>
 
                     <div className="col-md-12 mb-3">
@@ -1522,9 +1644,34 @@ const StaffPage = ({ initialView = "list" }) => {
                           </span>
                         </td>
                         <td>
-                          <span className="text-dark fs-13 font-w500">
-                            {roleObj?.name || acc.roleName || "Sans rôle"}
-                          </span>
+                          {(() => {
+                            const badgeClr = roleObj?.badgeColor || acc.badgeColor || "#1e60d5";
+                            const roleTitle = roleObj?.name || acc.roleName || "Sans rôle";
+                            const isHex = badgeClr && badgeClr.startsWith("#");
+                            const safeClr = isHex ? badgeClr : "#1e60d5";
+                            return (
+                              <span
+                                className="d-inline-flex align-items-center px-2.5 py-1 rounded-pill fs-12 font-w600"
+                                style={{
+                                  backgroundColor: `${safeClr}18`,
+                                  color: safeClr,
+                                  border: `1px solid ${safeClr}40`,
+                                }}
+                              >
+                                <span
+                                  className="me-1"
+                                  style={{
+                                    display: "inline-block",
+                                    width: "7px",
+                                    height: "7px",
+                                    borderRadius: "50%",
+                                    backgroundColor: safeClr,
+                                  }}
+                                />
+                                {roleTitle}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="d-none d-md-table-cell">
                           <span className="font-w600 text-dark">
@@ -1596,9 +1743,33 @@ const StaffPage = ({ initialView = "list" }) => {
               <div key={role.id} className="col-xl-6 col-lg-12 mb-4">
                 <div className="card h-100 border-0 shadow-sm">
                   <div className="card-header border-bottom py-3 px-4 d-flex align-items-center justify-content-between">
-                    <h5 className="card-title font-w600 mb-0 text-dark">
-                      {role.name}
-                    </h5>
+                    <div className="d-flex align-items-center gap-2">
+                      <span
+                        style={{
+                          display: "inline-block",
+                          width: "12px",
+                          height: "12px",
+                          borderRadius: "50%",
+                          backgroundColor: role.badgeColor && role.badgeColor.startsWith("#") ? role.badgeColor : "#1e60d5",
+                          boxShadow: `0 0 0 3px ${(role.badgeColor && role.badgeColor.startsWith("#") ? role.badgeColor : "#1e60d5")}33`,
+                        }}
+                      />
+                      <h5 className="card-title font-w600 mb-0 text-dark">
+                        {role.name}
+                      </h5>
+                    </div>
+                    <span
+                      className="badge fs-11 font-w600"
+                      style={{
+                        backgroundColor: (role.badgeColor && role.badgeColor.startsWith("#") ? role.badgeColor : "#1e60d5") + "18",
+                        color: role.badgeColor && role.badgeColor.startsWith("#") ? role.badgeColor : "#1e60d5",
+                        border: `1px solid ${(role.badgeColor && role.badgeColor.startsWith("#") ? role.badgeColor : "#1e60d5")}44`,
+                        padding: "5px 12px",
+                        borderRadius: "20px",
+                      }}
+                    >
+                      {role.isSystem ? "Rôle Système" : "Personnalisé"}
+                    </span>
                   </div>
 
                   <div className="card-body px-4 py-3">

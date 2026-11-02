@@ -28,19 +28,28 @@ switch ($method) {
 
 function handleGetStaff($db) {
     try {
-        $stmt = $db->query("SELECT * FROM staff_users ORDER BY id ASC");
+        $stmt = $db->query("
+            SELECT u.*, 
+                   COALESCE(r.name, u.role) AS resolved_role_name,
+                   COALESCE(r.badge_color, '#1e60d5') AS role_badge_color
+            FROM staff_users u
+            LEFT JOIN staff_roles r ON r.id = u.role_id
+            ORDER BY u.id ASC
+        ");
         $rows = $stmt->fetchAll();
 
         $data = array_map(function ($row) {
+            $roleId = !empty($row['role_id']) ? $row['role_id'] : (($row['type'] === 'doctor') ? 'role-superadmin' : 'role-secretary');
             return [
                 'id' => (int)$row['id'],
                 'name' => $row['name'],
                 'username' => $row['username'] ?? ($row['type'] === 'doctor' ? 'admin' : 'secretaire'),
                 'email' => $row['email'],
                 'phone' => $row['phone'] ?? '',
-                'role' => $row['role'],
-                'roleId' => ($row['type'] === 'doctor') ? 'role-superadmin' : 'role-secretary',
-                'roleName' => $row['role'],
+                'role' => $row['resolved_role_name'] ?? $row['role'],
+                'roleId' => $roleId,
+                'roleName' => $row['resolved_role_name'] ?? $row['role'],
+                'badgeColor' => $row['role_badge_color'] ?? '#1e60d5',
                 'type' => $row['type'],
                 'status' => $row['status'],
                 'accessLevel' => $row['access_level'] ?? '',
@@ -74,11 +83,25 @@ function handleSaveStaff($db) {
         $email = trim($input['email']);
         $username = !empty($input['username']) ? trim($input['username']) : ($input['type'] === 'doctor' ? 'admin' : null);
         $phone = $input['phone'] ?? '';
-        $role = $input['role'] ?? ($input['roleName'] ?? 'Secrétaire Médicale');
         $type = $input['type'] ?? 'secretary';
         $status = $input['status'] ?? 'Actif';
         $accessLevel = $input['accessLevel'] ?? 'Accueil & Gestion Administrative';
         $password = !empty($input['password']) ? password_hash($input['password'], PASSWORD_DEFAULT) : null;
+
+        $roleId = !empty($input['roleId']) ? trim($input['roleId']) : (!empty($input['role_id']) ? trim($input['role_id']) : null);
+        $role = $input['role'] ?? ($input['roleName'] ?? null);
+
+        if ($roleId && empty($role)) {
+            $stmtR = $db->prepare("SELECT name FROM staff_roles WHERE id = :rid");
+            $stmtR->execute([':rid' => $roleId]);
+            $role = $stmtR->fetchColumn();
+        }
+        if (empty($role)) {
+            $role = ($type === 'doctor') ? 'Médecin Titulaire (Super Admin)' : 'Secrétaire Médicale';
+        }
+        if (empty($roleId)) {
+            $roleId = ($type === 'doctor') ? 'role-superadmin' : 'role-secretary';
+        }
 
         // 1. Chercher si l'utilisateur existe déjà par ID, par Email ou premier compte médecin
         $existingId = null;
@@ -105,6 +128,7 @@ function handleSaveStaff($db) {
                         email = :email,
                         username = COALESCE(:username, username),
                         phone = :phone,
+                        role_id = :role_id,
                         role = :role,
                         type = :type,
                         status = :status,
@@ -115,6 +139,7 @@ function handleSaveStaff($db) {
                 ':email' => $email,
                 ':username' => $username,
                 ':phone' => $phone,
+                ':role_id' => $roleId,
                 ':role' => $role,
                 ':type' => $type,
                 ':status' => $status,
@@ -147,9 +172,9 @@ function handleSaveStaff($db) {
             $pwdHash = $password ?: password_hash('123456', PASSWORD_DEFAULT);
             $stmt = $db->prepare("
                 INSERT INTO staff_users (
-                    name, email, username, password_hash, phone, role, type, status, access_level
+                    name, email, username, password_hash, phone, role_id, role, type, status, access_level
                 ) VALUES (
-                    :name, :email, :username, :pwd, :phone, :role, :type, :status, :access_level
+                    :name, :email, :username, :pwd, :phone, :role_id, :role, :type, :status, :access_level
                 )
             ");
             $stmt->execute([
@@ -158,6 +183,7 @@ function handleSaveStaff($db) {
                 ':username' => $username,
                 ':pwd' => $pwdHash,
                 ':phone' => $phone,
+                ':role_id' => $roleId,
                 ':role' => $role,
                 ':type' => $type,
                 ':status' => $status,

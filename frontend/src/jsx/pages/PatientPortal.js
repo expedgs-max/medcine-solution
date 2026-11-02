@@ -833,6 +833,9 @@ export default function PatientPortal() {
   const homeAppointments = useMemo(() => {
     return patientAppointments.filter((apt) => {
       if (!apt || apt.hiddenFromHome) return false;
+      if (apt.status === "En attente") {
+        return false;
+      }
       if (apt.status && ["Terminé", "Annulé", "Absent"].includes(apt.status)) {
         return false;
       }
@@ -2859,7 +2862,7 @@ export default function PatientPortal() {
             </div>
 
             <h3 style={{ fontSize: "22px", fontWeight: "800", color: "var(--text-primary)", marginBottom: "6px" }}>
-              Rendez-vous Confirmé !
+              Demande de Rendez-vous !
             </h3>
             <p style={{ color: "var(--text-secondary)", fontSize: "13px", marginBottom: "20px" }}>
               Votre demande a été enregistrée avec succès au cabinet.

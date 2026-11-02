@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import WheelDatePicker from "./WheelDatePicker";
 import { Modal } from "react-bootstrap";
@@ -132,6 +132,65 @@ const PatientDetailsCabinet = () => {
     .map((c) => c.prescriptionData);
 
   const patientPrescriptions = [...basePrescriptions, ...consultPrescriptions];
+
+  // Liste consolidée des médicaments prescrits dans les ordonnances et traitements habituels
+  const allPatientTreatments = useMemo(() => {
+    const list = [];
+    const seenMeds = new Set();
+
+    // 1. Médicaments issus de toutes les ordonnances du patient (les plus récents en premier)
+    if (Array.isArray(patientPrescriptions) && patientPrescriptions.length > 0) {
+      const sortedPresc = [...patientPrescriptions].sort((a, b) => {
+        const da = new Date(a.date || a.prescriptionDate || a.createdAt || 0).getTime();
+        const db = new Date(b.date || b.prescriptionDate || b.createdAt || 0).getTime();
+        return db - da;
+      });
+
+      sortedPresc.forEach((ord) => {
+        if (Array.isArray(ord.items)) {
+          ord.items.forEach((item) => {
+            const rawMed = (item.medication || "").trim();
+            if (!rawMed) return;
+            const normKey = rawMed.toLowerCase();
+            if (!seenMeds.has(normKey)) {
+              seenMeds.add(normKey);
+              list.push({
+                name: rawMed,
+                dosage: item.dosage || "",
+                posology: item.posology || "",
+                duration: item.duration || "",
+                date: ord.date || ord.prescriptionDate || "",
+                prescriptionNumber: ord.prescriptionNumber || "",
+                source: "ordonnance",
+              });
+            }
+          });
+        }
+      });
+    }
+
+    // 2. Traitements habituels supplémentaires enregistrés sur la fiche patient
+    if (Array.isArray(patient?.regularTreatments)) {
+      patient.regularTreatments.forEach((t) => {
+        const tStr = typeof t === "string" ? t.trim() : (t.treatment || t.name || "").trim();
+        if (!tStr) return;
+        const normKey = tStr.toLowerCase();
+        if (!seenMeds.has(normKey)) {
+          seenMeds.add(normKey);
+          list.push({
+            name: tStr,
+            dosage: typeof t === "object" ? t.dosage : "",
+            posology: typeof t === "object" ? t.posology : "",
+            duration: "",
+            date: "",
+            source: "habituel",
+          });
+        }
+      });
+    }
+
+    return list;
+  }, [patientPrescriptions, patient?.regularTreatments]);
 
   const patientExaminations = patient
     ? initialExaminations.filter((e) => e.patientId === patient.id)
@@ -1800,8 +1859,8 @@ const PatientDetailsCabinet = () => {
         {/* PANEL 1: SYNTHÈSE ET ANTÉCÉDENTS */}
         {activeTab === "synthese" && (
           <div className="row g-4">
-            {/* Card 1: Traitements Habituels En Cours */}
-            <div className="col-lg-6">
+            {/* Card: Traitements Habituels En Cours */}
+            <div className="col-12">
               <div className="patient-panel-card h-100 d-flex flex-column justify-content-between">
                 <div>
                   <div className="patient-panel-card-header">
@@ -1826,18 +1885,23 @@ const PatientDetailsCabinet = () => {
                       </h3>
                     </div>
                     <span className="patient-panel-badge-pill">
-                      {patient.regularTreatments ? patient.regularTreatments.length : 2} actifs
+                      {allPatientTreatments.length} actif{allPatientTreatments.length > 1 ? "s" : ""}
                     </span>
                   </div>
 
-                  {patient.regularTreatments && patient.regularTreatments.length > 0 ? (
+                  {allPatientTreatments && allPatientTreatments.length > 0 ? (
                     <div>
-                      {patient.regularTreatments.map((t, idx) => {
+                      {allPatientTreatments.map((t, idx) => {
                         let tag = "Traitement";
-                        if (t.toLowerCase().includes("ventoline")) tag = "Inhalation";
-                        else if (t.toLowerCase().includes("inuvair")) tag = "Traitement de fond";
-                        else if (t.toLowerCase().includes("metformine")) tag = "Antidiabétique";
-                        else if (t.toLowerCase().includes("amlodipine")) tag = "Antihypertenseur";
+                        const lowName = (t.name || "").toLowerCase();
+                        if (lowName.includes("ventoline")) tag = "Inhalation";
+                        else if (lowName.includes("inuvair")) tag = "Traitement de fond";
+                        else if (lowName.includes("metformine")) tag = "Antidiabétique";
+                        else if (lowName.includes("amlodipine")) tag = "Antihypertenseur";
+                        else if (lowName.includes("folique") || lowName.includes("fer") || lowName.includes("vitamine")) tag = "Supplémentation";
+                        else if (lowName.includes("paracétamol") || lowName.includes("doliprane")) tag = "Antalgique";
+                        else if (lowName.includes("spasfon")) tag = "Antispasmodique";
+                        else if (t.source === "ordonnance") tag = "Prescrit";
 
                         return (
                           <div key={idx} className="patient-med-row">
@@ -1852,15 +1916,23 @@ const PatientDetailsCabinet = () => {
                                   flexShrink: 0,
                                 }}
                               ></span>
-                              <span
-                                style={{
-                                  fontSize: "14px",
-                                  fontWeight: 600,
-                                  color: "#334155",
-                                }}
-                              >
-                                {t}
-                              </span>
+                              <div>
+                                <span
+                                  style={{
+                                    fontSize: "14px",
+                                    fontWeight: 600,
+                                    color: "#334155",
+                                    display: "block",
+                                  }}
+                                >
+                                  {t.name}
+                                </span>
+                                {t.posology ? (
+                                  <span style={{ fontSize: "12px", color: "#64748b" }}>
+                                    {t.posology} {t.duration ? `• ${t.duration}` : ""}
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
                             <span className="patient-med-tag">{tag}</span>
                           </div>
@@ -1869,79 +1941,13 @@ const PatientDetailsCabinet = () => {
                     </div>
                   ) : (
                     <p className="text-muted mb-0 py-3 text-center">
-                      Aucun traitement au long cours enregistré.
+                      Aucun traitement ou médicament prescrit enregistré.
                     </p>
                   )}
                 </div>
               </div>
             </div>
 
-            {/* Card 2: Antécédents Médico-Chirurgicaux */}
-            <div className="col-lg-6">
-              <div className="patient-panel-card h-100">
-                <div className="patient-panel-card-header">
-                  <div className="d-flex align-items-center gap-3">
-                    <div className="patient-cell-icon-wrap">
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      >
-                        <path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3" />
-                        <path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4" />
-                        <circle cx="20" cy="10" r="2" />
-                      </svg>
-                    </div>
-                    <h3 className="patient-panel-card-title">
-                      Antécédents Médico-Chirurgicaux
-                    </h3>
-                  </div>
-                </div>
-
-                <div>
-                  {/* Médicaux */}
-                  <div className="patient-box-item">
-                    <strong>Médicaux : </strong>
-                    <span style={{ color: "#475569" }}>
-                      {patient.chronicDiseases && patient.chronicDiseases.length > 0
-                        ? patient.chronicDiseases.join(", ")
-                        : "Aucun"}
-                    </span>
-                  </div>
-
-                  {/* Chirurgicaux */}
-                  <div className="patient-box-item">
-                    <strong>Chirurgicaux : </strong>
-                    <span style={{ color: "#475569" }}>
-                      {patient.surgicalHistory || "Aucun"}
-                    </span>
-                  </div>
-
-                  {/* Familiaux */}
-                  <div className="patient-box-item">
-                    <strong>Familiaux : </strong>
-                    <span style={{ color: "#475569" }}>
-                      {patient.familyHistory || "Aucun"}
-                    </span>
-                  </div>
-
-                  {/* Gynéco-Obstétriques */}
-                  <div className="patient-box-item">
-                    <strong>Gynéco-Obstétriques : </strong>
-                    <span style={{ color: "#475569" }}>
-                      {patient.gravida !== null && patient.gravida !== undefined
-                        ? `Gestité G${patient.gravida} • Parité P${patient.para || 0} • Césarienne(s) : ${patient.cesarean || 0} • Fausse(s) couche(s) : ${patient.abortions || 0}`
-                        : "G1P0, aucun antécédent particulier."}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
           </div>
         )}
 

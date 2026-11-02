@@ -23,6 +23,60 @@ const DashboardCabinet = () => {
   const navigate = useNavigate();
   const { changeBackground } = useContext(ThemeContext);
 
+  const [authUser, setAuthUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem("cabinet_auth_user");
+      if (stored) return JSON.parse(stored);
+    } catch (e) {}
+    return null;
+  });
+
+  useEffect(() => {
+    const handleAuth = () => {
+      try {
+        const stored = localStorage.getItem("cabinet_auth_user");
+        if (stored) setAuthUser(JSON.parse(stored));
+      } catch (e) {}
+    };
+    window.addEventListener("storage", handleAuth);
+    window.addEventListener("auth_user_updated", handleAuth);
+    return () => {
+      window.removeEventListener("storage", handleAuth);
+      window.removeEventListener("auth_user_updated", handleAuth);
+    };
+  }, []);
+
+  const isFullAdmin =
+    !authUser ||
+    authUser.type === "doctor" ||
+    authUser.roleId === "role-superadmin" ||
+    authUser.pages?.["*"];
+
+  const hasModuleAccess = (moduleId) => {
+    if (isFullAdmin) return true;
+    if (authUser?.pages && authUser.pages[moduleId] !== undefined) {
+      return Boolean(authUser.pages[moduleId]);
+    }
+    try {
+      const savedRoles = JSON.parse(localStorage.getItem("cabinet_staff_roles") || "[]");
+      const foundRole = savedRoles.find(
+        (r) =>
+          r.id === authUser?.roleId ||
+          r.name === authUser?.role ||
+          r.name === authUser?.roleName
+      );
+      if (foundRole && foundRole.pages && foundRole.pages[moduleId] !== undefined) {
+        return Boolean(foundRole.pages[moduleId]);
+      }
+    } catch (e) {}
+    return false;
+  };
+
+  const hasAppointmentsAccess = hasModuleAccess("appointments");
+  const hasWaitingRoomAccess = hasModuleAccess("waiting-room");
+  const hasPatientsAccess = hasModuleAccess("patients");
+  const hasFinanceAccess = hasModuleAccess("invoices") || hasModuleAccess("cashflow");
+
   const [patients, setPatients] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [invoices, setInvoices] = useState([]);
@@ -232,85 +286,95 @@ const DashboardCabinet = () => {
             {initialDoctor.title} • {initialDoctor.convention} • Cabinet Saint-Honoré
           </p>
         </div>
-        <div className="d-flex align-items-center flex-wrap gap-2 mt-2 mt-sm-0">
-          <Link to="/admin/appointments" className="btn btn-outline-primary btn-rounded">
-            <i className="flaticon-381-calendar-1 me-2"></i> Voir l'agenda
-          </Link>
-          <Button
-            variant="primary"
-            className="btn-rounded"
-            onClick={() => setShowRdvModal(true)}
-          >
-            <i className="flaticon-381-add-1 me-2"></i> Nouveau RDV
-          </Button>
-        </div>
+        {hasAppointmentsAccess && (
+          <div className="d-flex align-items-center flex-wrap gap-2 mt-2 mt-sm-0">
+            <Link to="/admin/appointments" className="btn btn-outline-primary btn-rounded">
+              <i className="flaticon-381-calendar-1 me-2"></i> Voir l'agenda
+            </Link>
+            <Button
+              variant="primary"
+              className="btn-rounded"
+              onClick={() => setShowRdvModal(true)}
+            >
+              <i className="flaticon-381-add-1 me-2"></i> Nouveau RDV
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* Cartes métriques Cabinet (4 colonnes fidèles à Mediqu) */}
+      {/* Cartes métriques Cabinet adaptées aux habilitations */}
       <div className="row">
-        <div className="col-xl-3 col-sm-6">
-          <div className="card widget-stat">
-            <div className="card-body p-4">
-              <div className="media align-items-center">
-                <span className="me-3 icon-bx-lg bg-primary text-white rounded-circle d-flex align-items-center justify-content-center">
-                  <i className="flaticon-381-user-7 fs-24"></i>
-                </span>
-                <div className="media-body text-end">
-                  <p className="mb-1 text-muted">Patients du cabinet</p>
-                  <h3 className="text-primary font-w600 mb-0">{totalPatientsCount}</h3>
+        {(hasPatientsAccess || isFullAdmin) && (
+          <div className="col-xl-3 col-sm-6">
+            <div className="card widget-stat">
+              <div className="card-body p-4">
+                <div className="media align-items-center">
+                  <span className="me-3 icon-bx-lg bg-primary text-white rounded-circle d-flex align-items-center justify-content-center">
+                    <i className="flaticon-381-user-7 fs-24"></i>
+                  </span>
+                  <div className="media-body text-end">
+                    <p className="mb-1 text-muted">Patients du cabinet</p>
+                    <h3 className="text-primary font-w600 mb-0">{totalPatientsCount}</h3>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
-        <div className="col-xl-3 col-sm-6">
-          <div className="card widget-stat">
-            <div className="card-body p-4">
-              <div className="media align-items-center">
-                <span className="me-3 icon-bx-lg bg-info text-white rounded-circle d-flex align-items-center justify-content-center">
-                  <i className="flaticon-381-calendar-1 fs-24"></i>
-                </span>
-                <div className="media-body text-end">
-                  <p className="mb-1 text-muted">RDV du jour</p>
-                  <h3 className="text-info font-w600 mb-0">{todayAppointments}</h3>
+        {hasAppointmentsAccess && (
+          <div className="col-xl-3 col-sm-6">
+            <div className="card widget-stat">
+              <div className="card-body p-4">
+                <div className="media align-items-center">
+                  <span className="me-3 icon-bx-lg bg-info text-white rounded-circle d-flex align-items-center justify-content-center">
+                    <i className="flaticon-381-calendar-1 fs-24"></i>
+                  </span>
+                  <div className="media-body text-end">
+                    <p className="mb-1 text-muted">RDV du jour</p>
+                    <h3 className="text-info font-w600 mb-0">{todayAppointments}</h3>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
-        <div className="col-xl-3 col-sm-6">
-          <div className="card widget-stat">
-            <div className="card-body p-4">
-              <div className="media align-items-center">
-                <span className="me-3 icon-bx-lg bg-warning text-white rounded-circle d-flex align-items-center justify-content-center">
-                  <i className="flaticon-381-clock fs-24"></i>
-                </span>
-                <div className="media-body text-end">
-                  <p className="mb-1 text-muted">En salle d'attente</p>
-                  <h3 className="text-warning font-w600 mb-0">{waitingCount}</h3>
+        {hasWaitingRoomAccess && (
+          <div className="col-xl-3 col-sm-6">
+            <div className="card widget-stat">
+              <div className="card-body p-4">
+                <div className="media align-items-center">
+                  <span className="me-3 icon-bx-lg bg-warning text-white rounded-circle d-flex align-items-center justify-content-center">
+                    <i className="flaticon-381-clock fs-24"></i>
+                  </span>
+                  <div className="media-body text-end">
+                    <p className="mb-1 text-muted">En salle d'attente</p>
+                    <h3 className="text-warning font-w600 mb-0">{waitingCount}</h3>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
-        <div className="col-xl-3 col-sm-6">
-          <div className="card widget-stat">
-            <div className="card-body p-4">
-              <div className="media align-items-center">
-                <span className="me-3 icon-bx-lg bg-success text-white rounded-circle d-flex align-items-center justify-content-center">
-                  <i className="flaticon-381-diamond fs-24"></i>
-                </span>
-                <div className="media-body text-end">
-                  <p className="mb-1 text-muted">Recettes du jour</p>
-                  <h3 className="text-success font-w600 mb-0">{todayRevenue.toLocaleString("fr-DZ")} DA</h3>
+        {(hasFinanceAccess || isFullAdmin) && (
+          <div className="col-xl-3 col-sm-6">
+            <div className="card widget-stat">
+              <div className="card-body p-4">
+                <div className="media align-items-center">
+                  <span className="me-3 icon-bx-lg bg-success text-white rounded-circle d-flex align-items-center justify-content-center">
+                    <i className="flaticon-381-diamond fs-24"></i>
+                  </span>
+                  <div className="media-body text-end">
+                    <p className="mb-1 text-muted">Recettes du jour</p>
+                    <h3 className="text-success font-w600 mb-0">{todayRevenue.toLocaleString("fr-DZ")} DA</h3>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Rangée Principale : Graphiques & Activités du Cabinet */}
@@ -345,11 +409,13 @@ const DashboardCabinet = () => {
         </div>
       </div>
 
-      {/* Rangée : Rendez-vous du jour & Salle d'attente en direct */}
-      <div className="row">
-        {/* Rendez-vous du jour au cabinet */}
-        <div className="col-xl-8 col-lg-12">
-          <div className="card">
+      {/* Rangée : Rendez-vous du jour, Salle d'attente & Synthèse financière selon permissions */}
+      {(hasAppointmentsAccess || hasWaitingRoomAccess || hasFinanceAccess) && (
+        <div className="row">
+          {/* Rendez-vous du jour (affiché seulement si accès aux RDV) */}
+          {hasAppointmentsAccess && (
+            <div className={hasWaitingRoomAccess || hasFinanceAccess ? "col-xl-8 col-lg-12" : "col-12"}>
+              <div className="card">
             <div className="card-header border-0 pb-0 d-flex justify-content-between align-items-center flex-wrap">
               <div>
                 <h4 className="card-title">Agenda du jour</h4>
@@ -386,8 +452,20 @@ const DashboardCabinet = () => {
                       todayAppointmentsList.map((rdv) => (
                         <tr key={rdv.id}>
                           <td>
-                            <span className="badge badge-light text-primary font-w600" style={{ fontSize: "11px", padding: "4px 8px" }}>
-                              <i className="flaticon-381-clock me-1"></i>
+                            <span
+                              className="font-w600"
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                fontSize: "11.5px",
+                                padding: "4px 9px",
+                                borderRadius: "6px",
+                                backgroundColor: "#eff6ff",
+                                color: "#1d4ed8",
+                                border: "1px solid #bfdbfe",
+                              }}
+                            >
+                              <i className="flaticon-381-clock me-1" style={{ color: "#2563eb" }}></i>
                               {rdv.time}
                             </span>
                           </td>
@@ -482,10 +560,22 @@ const DashboardCabinet = () => {
                               )}
                               <Link
                                 to={rdv.patientId ? `/admin/patient-details?id=${rdv.patientId}` : "/admin/appointments"}
-                                className="btn btn-light btn-xs"
+                                className="btn btn-outline-primary btn-xs"
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  width: "28px",
+                                  height: "28px",
+                                  padding: "0",
+                                  borderRadius: "6px",
+                                  borderColor: "#bfdbfe",
+                                  color: "#2563eb",
+                                  backgroundColor: "#eff6ff",
+                                }}
                                 title="Voir détails"
                               >
-                                <i className="flaticon-381-folder"></i>
+                                <i className="flaticon-381-folder" style={{ fontSize: "13px" }}></i>
                               </Link>
                             </div>
                           </td>
@@ -518,8 +608,20 @@ const DashboardCabinet = () => {
                         className="p-3 border-bottom d-flex justify-content-between align-items-center"
                         style={{ backgroundColor: "#f8fafc" }}
                       >
-                        <span className="badge badge-light text-primary font-w700 fs-12">
-                          <i className="flaticon-381-clock me-1"></i>
+                        <span
+                          className="font-w700"
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            fontSize: "12px",
+                            padding: "4px 10px",
+                            borderRadius: "6px",
+                            backgroundColor: "#eff6ff",
+                            color: "#1d4ed8",
+                            border: "1px solid #bfdbfe",
+                          }}
+                        >
+                          <i className="flaticon-381-clock me-1" style={{ color: "#2563eb" }}></i>
                           {rdv.time}
                         </span>
                         <span className="text-muted fs-11">{rdv.date}</span>
@@ -632,93 +734,62 @@ const DashboardCabinet = () => {
             </div>
           </div>
         </div>
+          )}
 
-        {/* Salle d'attente en temps réel & Synthèse financière */}
-        <div className="col-xl-4 col-lg-12">
-          {/* Salle d'attente */}
-          <div className="card">
-            <div className="card-header border-0 pb-0 d-flex justify-content-between align-items-center">
-              <div>
-                <h4 className="card-title">Salle d'attente</h4>
-                <p className="text-muted fs-13 mb-0">Accueil en cours</p>
-              </div>
-              <Link to="/admin/waiting-room" className="btn btn-xs btn-outline-warning">
-                Direct
-              </Link>
-            </div>
-            <div className="card-body">
-              {waitingRoom.length === 0 ? (
-                <div className="text-center py-4 text-muted">
-                  <i className="flaticon-381-clock fs-32 d-block mb-2"></i>
-                  Aucun patient en salle d'attente.
+          {/* Colonne droite : Salle d'attente */}
+          {hasWaitingRoomAccess && (
+            <div className={hasAppointmentsAccess ? "col-xl-4 col-lg-12" : "col-xl-8 col-lg-10 mx-auto"}>
+              <div className="card">
+                <div className="card-header border-0 pb-0 d-flex justify-content-between align-items-center">
+                  <div>
+                    <h4 className="card-title">Salle d'attente</h4>
+                    <p className="text-muted fs-13 mb-0">Accueil en cours</p>
+                  </div>
+                  <Link to="/admin/waiting-room" className="btn btn-xs btn-outline-warning">
+                    Direct
+                  </Link>
                 </div>
-              ) : (
-                <div className="widget-media">
-                  <ul className="timeline">
-                    {waitingRoom.map((w, idx) => (
-                      <li key={idx}>
-                        <div className={`timeline-panel ${w.status === "En consultation" ? "bg-light-primary" : ""}`}>
-                          <div className="media me-2 media-primary">
-                            <i className="flaticon-381-user-7"></i>
-                          </div>
-                          <div className="media-body">
-                            <h6 className="mb-1 font-w600">{w.patientName}</h6>
-                            <p className="mb-0 text-muted fs-12">
-                              Arrivé à {w.arrivalTime} • RDV {w.appointmentTime}
-                            </p>
-                          </div>
-                          <button
-                            className="btn btn-primary btn-xs ms-2"
-                            onClick={() => navigate("/admin/consultations")}
-                          >
-                            Appeler
-                          </button>
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
+                <div className="card-body">
+                  {waitingRoom.length === 0 ? (
+                    <div className="text-center py-4 text-muted">
+                      <i className="flaticon-381-clock fs-32 d-block mb-2"></i>
+                      Aucun patient en salle d'attente.
+                    </div>
+                  ) : (
+                    <div className="widget-media">
+                      <ul className="timeline">
+                        {waitingRoom.map((w, idx) => (
+                          <li key={idx}>
+                            <div className={`timeline-panel ${w.status === "En consultation" ? "bg-light-primary" : ""}`}>
+                              <div className="media me-2 media-primary">
+                                <i className="flaticon-381-user-7"></i>
+                              </div>
+                              <div className="media-body">
+                                <h6 className="mb-1 font-w600">{w.patientName}</h6>
+                                <p className="mb-0 text-muted fs-12">
+                                  Arrivé à {w.arrivalTime} • RDV {w.appointmentTime}
+                                </p>
+                              </div>
+                              <button
+                                className="btn btn-primary btn-xs ms-2"
+                                onClick={() => navigate("/admin/consultations")}
+                              >
+                                Appeler
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-
-          {/* Synthèse financière du cabinet */}
-          <div className="card">
-            <div className="card-header border-0 pb-0">
-              <h4 className="card-title">Caisse & Facturation</h4>
-            </div>
-            <div className="card-body">
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <span className="text-muted">Recettes encaissées ce jour :</span>
-                <span className="font-w600 text-success fs-16">{todayRevenue.toLocaleString("fr-DZ")} DA</span>
-              </div>
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <span className="text-muted">Factures en attente / télétransmises :</span>
-                <span className="font-w600 text-warning fs-16">{pendingInvoicesAmount.toLocaleString("fr-DZ")} DA</span>
-              </div>
-              <div className="progress mb-3" style={{ height: "8px" }}>
-                <div
-                  className="progress-bar bg-success"
-                  style={{ width: "70%" }}
-                  role="progressbar"
-                ></div>
-                <div
-                  className="progress-bar bg-warning"
-                  style={{ width: "30%" }}
-                  role="progressbar"
-                ></div>
-              </div>
-              <div className="d-grid gap-2">
-                <Link to="/admin/invoices" className="btn btn-outline-primary btn-sm">
-                  <i className="flaticon-381-calculator me-1"></i> Consulter les factures
-                </Link>
               </div>
             </div>
-          </div>
+          )}
         </div>
-      </div>
+      )}
 
-      {/* Modal Nouveau Rendez-vous Rapide */}
+{/* Modal Nouveau Rendez-vous Rapide */}
       <Modal show={showRdvModal} onHide={() => setShowRdvModal(false)} centered>
         <div className="modal-header">
           <h5 className="modal-title">Nouveau Rendez-vous</h5>
